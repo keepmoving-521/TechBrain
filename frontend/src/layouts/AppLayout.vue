@@ -1,10 +1,5 @@
 <script setup lang="ts">
-import {
-  Collection,
-  DataAnalysis,
-  Monitor,
-  Search,
-} from "@element-plus/icons-vue";
+import { Collection, DataAnalysis, Monitor, Search } from "@element-plus/icons-vue";
 import { useRoute } from "vue-router";
 
 const route = useRoute();

@@ -46,8 +46,18 @@ VITE_BACKEND_ORIGIN=http://127.0.0.1:8000
 ```powershell
 pnpm dev
 pnpm type-check
+pnpm lint
+pnpm format:check
+pnpm test
+pnpm check
 pnpm build
 pnpm preview
+```
+
+也可以在项目根目录执行统一质量检查：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\check.ps1 -FrontendOnly
 ```
 
 ## 已包含能力

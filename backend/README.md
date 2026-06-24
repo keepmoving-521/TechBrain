@@ -103,6 +103,12 @@ python -m ruff check .
 python -m ruff format --check .
 ```
 
+也可以在项目根目录执行统一质量检查：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\check.ps1 -BackendOnly
+```
+
 ## 错误响应
 
 所有 API 错误统一返回：
