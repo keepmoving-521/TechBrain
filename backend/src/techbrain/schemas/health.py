@@ -10,7 +10,7 @@ from techbrain.core.config import Environment
 class HealthResponse(BaseModel):
     """API process health."""
 
-    status: Literal["ok"]
+    status: Literal["ok", "error"]
     service: str
     version: str
     environment: Environment

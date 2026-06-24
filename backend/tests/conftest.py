@@ -16,6 +16,7 @@ def settings() -> Settings:
         docs_enabled=True,
         log_level="INFO",
         log_format="console",
+        database_url="sqlite+pysqlite:///:memory:",
     )
 
 

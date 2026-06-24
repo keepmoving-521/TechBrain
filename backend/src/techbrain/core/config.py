@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     docs_enabled: bool = True
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_format: Literal["json", "console"] = "console"
+    database_url: str = (
+        "mysql+pymysql://techbrain:techbrain@127.0.0.1:3306/techbrain?charset=utf8mb4"
+    )
+    database_pool_size: int = Field(default=5, ge=1, le=100)
+    database_max_overflow: int = Field(default=10, ge=0, le=100)
+    database_pool_recycle_seconds: int = Field(default=1800, ge=60)
+    database_pool_pre_ping: bool = True
 
     @model_validator(mode="after")
     def validate_environment_safety(self) -> "Settings":

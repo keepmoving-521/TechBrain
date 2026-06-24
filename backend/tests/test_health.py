@@ -25,7 +25,31 @@ def test_ready_health_check(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.headers["X-Request-ID"] == "integration-test-request"
     assert response.json()["status"] == "ok"
-    assert response.json()["checks"] == [{"name": "configuration", "status": "ok", "message": None}]
+    assert response.json()["checks"] == [
+        {"name": "configuration", "status": "ok", "message": None},
+        {"name": "database", "status": "ok", "message": None},
+    ]
+
+
+def test_ready_health_check_returns_503_when_database_is_unavailable(app) -> None:
+    class UnavailableDatabase:
+        def check_connection(self):
+            from techbrain.db.session import DatabaseCheckResult
+
+            return DatabaseCheckResult(ok=False, message="database unavailable")
+
+    app.state.database = UnavailableDatabase()
+
+    with TestClient(app, raise_server_exceptions=False) as test_client:
+        response = test_client.get("/api/v1/health/ready")
+
+    assert response.status_code == 503
+    assert response.json()["status"] == "error"
+    assert response.json()["checks"][-1] == {
+        "name": "database",
+        "status": "error",
+        "message": "database unavailable",
+    }
 
 
 def test_invalid_request_id_is_replaced(client: TestClient) -> None:

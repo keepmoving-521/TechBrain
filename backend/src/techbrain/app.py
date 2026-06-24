@@ -10,6 +10,7 @@ from techbrain.core.config import Settings, get_settings
 from techbrain.core.exceptions import register_exception_handlers
 from techbrain.core.logging import configure_logging, get_logger
 from techbrain.core.middleware import RequestContextMiddleware
+from techbrain.db.session import DatabaseManager
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -17,6 +18,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     resolved_settings = settings or get_settings()
     configure_logging(resolved_settings)
     logger = get_logger(__name__)
+    database = DatabaseManager(resolved_settings)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -27,8 +29,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "version": resolved_settings.app_version,
             },
         )
-        yield
-        logger.info("application.stopped")
+        try:
+            yield
+        finally:
+            database.dispose()
+            logger.info("application.stopped")
 
     application = FastAPI(
         title=resolved_settings.app_name,
@@ -40,6 +45,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     application.state.settings = resolved_settings
+    application.state.database = database
     application.add_middleware(RequestContextMiddleware)
     register_exception_handlers(application)
     application.include_router(api_router, prefix=resolved_settings.api_v1_prefix)

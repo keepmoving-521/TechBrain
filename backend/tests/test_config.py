@@ -23,8 +23,14 @@ def test_settings_accept_environment_overrides() -> None:
     ("override", "expected_message"),
     [
         ({"debug": True, "log_format": "json"}, "生产环境禁止启用 debug"),
-        ({"log_level": "DEBUG", "log_format": "json"}, "生产环境禁止使用 DEBUG"),
-        ({"log_format": "console"}, "生产环境必须使用 JSON"),
+        (
+            {"debug": False, "log_level": "DEBUG", "log_format": "json"},
+            "生产环境禁止使用 DEBUG",
+        ),
+        (
+            {"debug": False, "log_level": "INFO", "log_format": "console"},
+            "生产环境必须使用 JSON",
+        ),
     ],
 )
 def test_production_rejects_unsafe_settings(

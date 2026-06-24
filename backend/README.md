@@ -10,6 +10,7 @@ TechBrain 后端基础工程，基于 Python 3.12 与 FastAPI。
 - 请求 ID 生成与透传
 - 统一 HTTP、参数校验及未处理异常响应
 - 存活检查和就绪检查
+- MySQL 数据库配置、连接管理和 Alembic 迁移机制
 - Pytest 测试与 Ruff 代码检查
 
 ## 环境要求
@@ -32,6 +33,42 @@ python -m uvicorn techbrain.main:app --reload
 - API 文档：<http://127.0.0.1:8000/docs>
 - 存活检查：<http://127.0.0.1:8000/api/v1/health/live>
 - 就绪检查：<http://127.0.0.1:8000/api/v1/health/ready>
+
+## 数据库迁移
+
+后端默认使用 MySQL，连接地址通过 `TECHBRAIN_DATABASE_URL` 配置：
+
+```text
+TECHBRAIN_DATABASE_URL=mysql+pymysql://techbrain:techbrain@127.0.0.1:3306/techbrain?charset=utf8mb4
+```
+
+初始化空数据库或升级到最新结构：
+
+```powershell
+python -m techbrain.db.migrate upgrade head
+```
+
+查看当前数据库版本：
+
+```powershell
+python -m techbrain.db.migrate current
+```
+
+查看迁移历史：
+
+```powershell
+python -m techbrain.db.migrate history
+```
+
+V0.1 当前只建立迁移机制和基线版本，业务表会在后续需求中逐步加入。
+
+应用就绪检查会执行轻量数据库连接检测：
+
+```text
+GET /api/v1/health/ready
+```
+
+数据库不可用时，该接口返回 `503`，并在 `checks` 中标记 `database` 为 `error`。
 
 ## 配置优先级
 
