@@ -1,0 +1,211 @@
+:root {
+  color-scheme: light;
+  --tb-bg: #f5f7fb;
+  --tb-surface: #ffffff;
+  --tb-sidebar: #101827;
+  --tb-sidebar-muted: #9aa6bf;
+  --tb-primary: #4169e1;
+  --tb-primary-dark: #2546a8;
+  --tb-text: #172033;
+  --tb-muted: #667085;
+  --tb-border: #e4e7ef;
+  --tb-radius: 18px;
+  --tb-shadow: 0 18px 45px rgb(16 24 39 / 8%);
+
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "Microsoft YaHei", sans-serif;
+  color: var(--tb-text);
+  background: var(--tb-bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 1200px;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgb(65 105 225 / 14%), transparent 34rem),
+    var(--tb-bg);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+.app-shell {
+  min-height: 100vh;
+}
+
+.app-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  padding: 24px 16px;
+  color: #ffffff;
+  background:
+    linear-gradient(180deg, rgb(65 105 225 / 18%), transparent 45%),
+    var(--tb-sidebar);
+}
+
+.brand {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 10px 28px;
+}
+
+.brand__logo {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  font-weight: 800;
+  color: #ffffff;
+  place-items: center;
+  background: linear-gradient(135deg, #5f7cff, #34d399);
+  border-radius: 14px;
+  box-shadow: 0 12px 30px rgb(65 105 225 / 36%);
+}
+
+.brand strong,
+.brand small {
+  display: block;
+}
+
+.brand small {
+  margin-top: 4px;
+  color: var(--tb-sidebar-muted);
+}
+
+.app-menu {
+  border-right: 0;
+}
+
+.app-menu .el-menu-item {
+  margin: 6px 0;
+  border-radius: 12px;
+}
+
+.app-menu .el-menu-item.is-active {
+  background: rgb(255 255 255 / 12%);
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: auto;
+  padding: 28px 36px 18px;
+}
+
+.app-header h1 {
+  margin: 4px 0 0;
+  font-size: 28px;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--tb-primary);
+  text-transform: uppercase;
+}
+
+.app-main {
+  padding: 16px 36px 40px;
+}
+
+.hero-panel {
+  display: grid;
+  min-height: 330px;
+  padding: 44px;
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, rgb(255 255 255 / 94%), rgb(255 255 255 / 76%)),
+    radial-gradient(circle at 82% 18%, rgb(52 211 153 / 28%), transparent 15rem),
+    radial-gradient(circle at 92% 80%, rgb(65 105 225 / 26%), transparent 18rem);
+  border: 1px solid rgb(255 255 255 / 75%);
+  border-radius: 28px;
+  box-shadow: var(--tb-shadow);
+}
+
+.hero-panel h2 {
+  max-width: 760px;
+  margin: 12px 0 16px;
+  font-size: 42px;
+  line-height: 1.15;
+}
+
+.hero-panel p:not(.eyebrow) {
+  max-width: 720px;
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.8;
+  color: var(--tb-muted);
+}
+
+.hero-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 20px;
+}
+
+.feature-card,
+.content-card {
+  border: 1px solid var(--tb-border);
+  border-radius: var(--tb-radius);
+}
+
+.feature-card h3 {
+  margin: 0 0 10px;
+  font-size: 18px;
+}
+
+.feature-card p {
+  margin: 0;
+  line-height: 1.7;
+  color: var(--tb-muted);
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 700;
+}
+
+.placeholder-empty {
+  padding: 56px 0;
+}
+
+.status-descriptions {
+  margin-top: 20px;
+}
+
+.status-error {
+  display: block;
+  margin-top: 16px;
+}
+
+.not-found {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  background: var(--tb-bg);
+}
