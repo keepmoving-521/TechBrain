@@ -137,6 +137,10 @@ celerybeat.pid
 *.aof
 *.pid
 
+# Local infrastructure data
+infra/local/data/
+infra/local/logs/
+
 # RabbitMQ
 mnesia/
 rabbitmq/
@@ -152,6 +156,7 @@ activemq-data/
 .env
 .env.*
 !.env.example
+infra/local/.env
 .envrc
 .venv
 env/

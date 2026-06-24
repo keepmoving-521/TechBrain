@@ -94,7 +94,9 @@
 
 #### TB-V01-005：建立本地开发环境
 
+- 状态：已完成（2026-06-24）。
 - 开发内容：提供本地运行所需的 MySQL、ElasticSearch 等基础服务编排和环境变量模板。
+- 交付物：[本地 Docker Compose 编排](../compose.yaml)、[本地环境变量模板](../infra/local/.env.example)及[本地开发环境说明](../infra/local/README.md)。
 - 验收标准：开发者按照文档可启动基础依赖；服务具备健康检查；敏感配置不进入仓库。
 - 依赖：TB-V01-001。
 

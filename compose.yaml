@@ -1,0 +1,78 @@
+name: techbrain
+
+services:
+  mysql:
+    image: mysql:${TECHBRAIN_MYSQL_IMAGE_TAG:-8.4}
+    container_name: techbrain-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${TECHBRAIN_MYSQL_ROOT_PASSWORD:-techbrain_root}
+      MYSQL_DATABASE: ${TECHBRAIN_MYSQL_DATABASE:-techbrain}
+      MYSQL_USER: ${TECHBRAIN_MYSQL_USER:-techbrain}
+      MYSQL_PASSWORD: ${TECHBRAIN_MYSQL_PASSWORD:-techbrain}
+      TZ: ${TECHBRAIN_TIMEZONE:-Asia/Shanghai}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+08:00
+    ports:
+      - "${TECHBRAIN_MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  redis:
+    image: redis:${TECHBRAIN_REDIS_IMAGE_TAG:-7.4-alpine}
+    container_name: techbrain-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${TECHBRAIN_REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${TECHBRAIN_ELASTICSEARCH_IMAGE_TAG:-9.0.0}
+    container_name: techbrain-elasticsearch
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      xpack.security.http.ssl.enabled: "false"
+      ES_JAVA_OPTS: ${TECHBRAIN_ELASTICSEARCH_JAVA_OPTS:--Xms1g -Xmx1g}
+      TZ: ${TECHBRAIN_TIMEZONE:-Asia/Shanghai}
+    ports:
+      - "${TECHBRAIN_ELASTICSEARCH_HTTP_PORT:-9200}:9200"
+      - "${TECHBRAIN_ELASTICSEARCH_TRANSPORT_PORT:-9300}:9300"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl --fail --silent 'http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=1s' > /dev/null",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+volumes:
+  mysql-data:
+  redis-data:
+  elasticsearch-data:
