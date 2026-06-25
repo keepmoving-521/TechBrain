@@ -18,6 +18,7 @@ TechBrain 后端基础工程，基于 Python 3.12 与 FastAPI。
 - Markdown 新增文档同步入库
 - Markdown 修改文档同步更新
 - Markdown 文档移动识别
+- Markdown 文档软删除与恢复
 - Pytest 测试与 Ruff 代码检查
 
 ## 环境要求
@@ -190,6 +191,20 @@ TECHBRAIN_KNOWLEDGE_MAX_FILE_SIZE_BYTES=5242880
 - 新路径已被其他文档占用时返回 `DOCUMENT_PATH_CONFLICT`
 
 完整约定见：[文档移动识别说明](../docs/knowledge-move-document-sync.md)。
+
+## 文档删除与恢复
+
+同步服务支持在源 Markdown 文件缺失时将文档标记为软删除，并在文件恢复后重新激活原文档记录。
+
+同步规则：
+
+- 本轮扫描未出现的活动文档会被标记为 `is_deleted=true`
+- 软删除文档的 `sync_status=deleted`
+- 正常列表和搜索应使用 `active_knowledge_documents_statement()` 过滤 `is_deleted=false`
+- 文件恢复且 `document_id` 不变时复用原数据库主键
+- 恢复后清空 `deleted_at`，并将 `sync_status` 改回 `synced`
+
+完整约定见：[文档删除与恢复同步说明](../docs/knowledge-delete-restore-sync.md)。
 
 ## 配置优先级
 

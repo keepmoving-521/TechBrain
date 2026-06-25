@@ -21,9 +21,17 @@ from techbrain.models import DocumentSyncStatus, KnowledgeDocument
 class NewDocumentSyncResult:
     """Result of syncing one newly discovered Markdown document."""
 
-    status: Literal["created", "updated", "unchanged", "skipped", "error"]
+    status: Literal["created", "updated", "restored", "unchanged", "skipped", "error"]
     document: KnowledgeDocument | None
     errors: tuple[MarkdownParseIssue, ...] = ()
+
+
+@dataclass(frozen=True)
+class DeletedDocumentSyncResult:
+    """Result of marking missing source documents as deleted."""
+
+    deleted_count: int
+    deleted_documents: tuple[KnowledgeDocument, ...]
 
 
 def sync_new_markdown_document(
@@ -118,6 +126,17 @@ def sync_markdown_document(
             ),
         )
 
+    if existing.is_deleted:
+        _apply_document_values(existing, values)
+        existing.sync_status = DocumentSyncStatus.SYNCED.value
+        existing.sync_error = None
+        existing.last_scanned_at = now
+        existing.last_synced_at = now
+        existing.is_deleted = False
+        existing.deleted_at = None
+        session.flush()
+        return NewDocumentSyncResult(status="restored", document=existing)
+
     if _document_hashes_unchanged(existing, values):
         return NewDocumentSyncResult(status="unchanged", document=existing)
 
@@ -131,6 +150,42 @@ def sync_markdown_document(
     session.flush()
 
     return NewDocumentSyncResult(status="updated", document=existing)
+
+
+def mark_missing_documents_deleted(
+    session: Session,
+    scanned_files: tuple[MarkdownFile, ...],
+    *,
+    deleted_at: datetime | None = None,
+) -> DeletedDocumentSyncResult:
+    """Soft-delete active documents whose source paths were not found in this scan."""
+    scanned_paths = {file.relative_path for file in scanned_files}
+    now = deleted_at or datetime.now(UTC)
+    candidates = session.scalars(
+        active_knowledge_documents_statement().where(
+            KnowledgeDocument.relative_path.not_in(scanned_paths),
+        )
+    ).all()
+
+    for document in candidates:
+        document.is_deleted = True
+        document.deleted_at = now
+        document.sync_status = DocumentSyncStatus.DELETED.value
+        document.sync_error = None
+        document.last_scanned_at = now
+
+    if candidates:
+        session.flush()
+
+    return DeletedDocumentSyncResult(
+        deleted_count=len(candidates),
+        deleted_documents=tuple(candidates),
+    )
+
+
+def active_knowledge_documents_statement():
+    """Return the base query for normal lists and search indexing."""
+    return select(KnowledgeDocument).where(KnowledgeDocument.is_deleted.is_(False))
 
 
 def _find_document_by_id(
