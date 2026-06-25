@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend quality
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install backend dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Ruff static check
+        run: python -m ruff check .
+
+      - name: Ruff format check
+        run: python -m ruff format --check .
+
+      - name: Pytest with coverage
+        run: python -m pytest --cov=techbrain --cov-report=term-missing
+
+      - name: Build backend wheel artifact
+        run: python -m pip wheel . --wheel-dir dist
+
+      - name: Upload backend wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: techbrain-backend-wheel
+          path: backend/dist/*.whl
+          if-no-files-found: error
+
+  frontend:
+    name: Frontend quality and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Frontend quality gate
+        run: pnpm check
+
+      - name: Upload frontend dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: techbrain-frontend-dist
+          path: frontend/dist
+          if-no-files-found: error
+
+  compose:
+    name: Compose configuration
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate Docker Compose config
+        run: docker compose --env-file infra/local/.env.example config
+
+  ci-summary:
+    name: CI summary
+    runs-on: ubuntu-latest
+    needs:
+      - backend
+      - frontend
+      - compose
+    if: always()
+
+    steps:
+      - name: Fail when required jobs fail
+        run: |
+          if [ "${{ needs.backend.result }}" != "success" ]; then
+            echo "Backend quality job failed: ${{ needs.backend.result }}"
+            exit 1
+          fi
+          if [ "${{ needs.frontend.result }}" != "success" ]; then
+            echo "Frontend quality job failed: ${{ needs.frontend.result }}"
+            exit 1
+          fi
+          if [ "${{ needs.compose.result }}" != "success" ]; then
+            echo "Compose configuration job failed: ${{ needs.compose.result }}"
+            exit 1
+          fi
+          echo "All CI jobs passed."
