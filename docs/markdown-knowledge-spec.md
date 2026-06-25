@@ -224,7 +224,7 @@ backend/python/~$sqlalchemy-joinedload.md
 
 ## 7. Markdown 内容基础要求
 
-本需求只定义目录与文件规范，Front Matter 字段将在 TB-V10-002 中单独定义。
+本需求只定义目录与文件规范，Front Matter 字段见：[Front Matter 元数据规范](front-matter-spec.md)。
 
 当前阶段对正文的最低要求：
 
@@ -606,7 +606,7 @@ TechBrain-Knowledge/
 
 本规范为以下需求提供输入：
 
-- TB-V10-002：Front Matter 元数据规范。
+- TB-V10-002：[Front Matter 元数据规范](front-matter-spec.md)。
 - TB-V10-003：知识库配置管理。
 - TB-V10-004：Markdown 文件扫描。
 - TB-V10-005：Markdown 内容解析。
