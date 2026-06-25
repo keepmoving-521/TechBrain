@@ -47,10 +47,15 @@ def test_empty_database_can_be_initialized_with_alembic(monkeypatch) -> None:
 
         with sqlite3.connect(database_path) as connection:
             version = connection.execute("select version_num from alembic_version").fetchone()
+            table = connection.execute(
+                "select name from sqlite_master "
+                "where type = 'table' and name = 'knowledge_documents'"
+            ).fetchone()
     finally:
         get_settings.cache_clear()
 
-    assert version == ("0001",)
+    assert version == ("0002",)
+    assert table == ("knowledge_documents",)
 
 
 def test_migration_cli_dispatches_commands(monkeypatch) -> None:

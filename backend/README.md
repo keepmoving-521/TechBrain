@@ -14,6 +14,7 @@ TechBrain 后端基础工程，基于 Python 3.12 与 FastAPI。
 - Markdown 知识库配置加载与同步前校验
 - Markdown 知识目录递归扫描与错误记录
 - Markdown Front Matter、正文结构、代码块和链接解析
+- Markdown 文档结构化数据模型与数据库迁移
 - Pytest 测试与 Ruff 代码检查
 
 ## 环境要求
@@ -64,6 +65,8 @@ python -m techbrain.db.migrate history
 ```
 
 V0.1 当前只建立迁移机制和基线版本，业务表会在后续需求中逐步加入。
+
+当前已包含 `knowledge_documents` 文档结构化数据表，用于记录 Markdown 文档的路径、状态、哈希、软删除和同步状态。
 
 应用就绪检查会执行轻量数据库连接检测：
 
@@ -129,6 +132,20 @@ TECHBRAIN_KNOWLEDGE_MAX_FILE_SIZE_BYTES=5242880
 格式错误会返回包含文件路径、错误码、字段名、行号和列号的错误信息，便于同步任务记录失败原因。
 
 完整约定见：[Markdown 内容解析说明](../docs/markdown-parsing.md)。
+
+## 文档结构化数据模型
+
+后端提供 `knowledge_documents` 表和对应 ORM 模型，用于保存 Markdown 知识文档的最新结构化状态。
+
+模型支持：
+
+- 通过 `document_id` 保持文档稳定身份
+- 通过 `relative_path`、`absolute_path` 和 `path_hash` 记录文件移动
+- 通过 `content_hash` 和 `front_matter_hash` 判断内容或元数据变化
+- 通过 `is_deleted` 和 `deleted_at` 支持软删除
+- 通过 `sync_status`、`sync_error`、`last_scanned_at`、`last_synced_at` 记录同步状态
+
+完整约定见：[文档结构化数据模型说明](../docs/knowledge-document-data-model.md)。
 
 ## 配置优先级
 
