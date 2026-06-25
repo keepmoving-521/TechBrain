@@ -17,6 +17,7 @@ TechBrain 后端基础工程，基于 Python 3.12 与 FastAPI。
 - Markdown 文档结构化数据模型与数据库迁移
 - Markdown 新增文档同步入库
 - Markdown 修改文档同步更新
+- Markdown 文档移动识别
 - Pytest 测试与 Ruff 代码检查
 
 ## 环境要求
@@ -176,6 +177,19 @@ TECHBRAIN_KNOWLEDGE_MAX_FILE_SIZE_BYTES=5242880
 - 更新成功后刷新 `last_scanned_at` 和 `last_synced_at`
 
 完整约定见：[修改文档同步说明](../docs/knowledge-update-document-sync.md)。
+
+## 文档移动识别
+
+同步服务通过 Front Matter `id` 识别文档稳定身份。文件路径变化但 `document_id` 不变时，会更新同一条 `knowledge_documents` 记录，而不是新增一条记录。
+
+移动识别规则：
+
+- 优先按 `document_id` 查找已有文档
+- 同一 `document_id` 的新路径会更新 `relative_path`、`absolute_path` 和 `path_hash`
+- 数据库主键和 `document_id` 保持不变
+- 新路径已被其他文档占用时返回 `DOCUMENT_PATH_CONFLICT`
+
+完整约定见：[文档移动识别说明](../docs/knowledge-move-document-sync.md)。
 
 ## 配置优先级
 

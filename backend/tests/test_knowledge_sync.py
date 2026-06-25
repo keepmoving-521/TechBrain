@@ -268,3 +268,73 @@ def test_sync_markdown_document_updates_changed_front_matter() -> None:
         assert second.document.summary == "更新后的摘要。"
         assert second.document.front_matter_hash != original_front_matter_hash
         assert second.document.content_hash == original_content_hash
+
+
+def test_sync_markdown_document_recognizes_file_move_by_document_id() -> None:
+    root = Path(".pytest_tmp") / "sync_moved_file"
+    original_file = _write_markdown(
+        root,
+        "backend/python/sqlalchemy-joinedload.md",
+        "sqlalchemy-joinedload",
+    )
+    moved_file = _write_markdown(
+        root,
+        "backend/sqlalchemy/sqlalchemy-joinedload.md",
+        "sqlalchemy-joinedload",
+    )
+    second_scanned_at = datetime(2026, 6, 25, 12, 0, tzinfo=UTC)
+
+    with _create_session() as session:
+        first = sync_markdown_document(session, original_file)
+        session.commit()
+
+        original_database_id = first.document.id if first.document else None
+        original_content_hash = first.document.content_hash if first.document else None
+        original_front_matter_hash = first.document.front_matter_hash if first.document else None
+        original_path_hash = first.document.path_hash if first.document else None
+        result = sync_markdown_document(session, moved_file, scanned_at=second_scanned_at)
+        session.commit()
+
+        documents = session.scalars(select(KnowledgeDocument)).all()
+
+        assert result.status == "updated"
+        assert len(documents) == 1
+        assert result.document is not None
+        assert result.document.id == original_database_id
+        assert result.document.document_id == "sqlalchemy-joinedload"
+        assert result.document.relative_path == "backend/sqlalchemy/sqlalchemy-joinedload.md"
+        assert result.document.absolute_path.replace("\\", "/").endswith(
+            "backend/sqlalchemy/sqlalchemy-joinedload.md"
+        )
+        assert result.document.content_hash == original_content_hash
+        assert result.document.front_matter_hash == original_front_matter_hash
+        assert result.document.path_hash != original_path_hash
+        assert result.document.last_scanned_at == second_scanned_at.replace(tzinfo=None)
+        assert result.document.last_synced_at == second_scanned_at.replace(tzinfo=None)
+
+
+def test_sync_markdown_document_rejects_move_to_occupied_path() -> None:
+    root = Path(".pytest_tmp") / "sync_move_conflict"
+    first_file = _write_markdown(root, "backend/python/first.md", "first-document")
+    second_file = _write_markdown(root, "backend/python/second.md", "second-document")
+
+    with _create_session() as session:
+        sync_markdown_document(session, first_file)
+        sync_markdown_document(session, second_file)
+        session.commit()
+
+        conflicting_move = _write_markdown(root, "backend/python/second.md", "first-document")
+        result = sync_markdown_document(session, conflicting_move)
+        session.commit()
+
+        documents = session.scalars(
+            select(KnowledgeDocument).order_by(KnowledgeDocument.document_id)
+        ).all()
+
+        assert result.status == "error"
+        assert result.errors[0].code == "DOCUMENT_PATH_CONFLICT"
+        assert len(documents) == 2
+        assert documents[0].document_id == "first-document"
+        assert documents[0].relative_path == "backend/python/first.md"
+        assert documents[1].document_id == "second-document"
+        assert documents[1].relative_path == "backend/python/second.md"

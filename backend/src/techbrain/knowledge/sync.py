@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Literal
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from techbrain.knowledge.parser import (
@@ -47,7 +47,10 @@ def sync_new_markdown_document(
         )
 
     parsed_document = parse_result.document
-    existing = _find_existing_document(session, parsed_document)
+    existing = _find_document_by_id(session, parsed_document) or _find_document_by_path(
+        session,
+        parsed_document,
+    )
     if existing is not None:
         return NewDocumentSyncResult(status="skipped", document=existing)
 
@@ -76,16 +79,45 @@ def sync_markdown_document(
         )
 
     parsed_document = parse_result.document
-    existing = _find_existing_document(session, parsed_document)
+    existing = _find_document_by_id(session, parsed_document)
     now = scanned_at or datetime.now(UTC)
 
     if existing is None:
+        path_conflict = _find_document_by_path(session, parsed_document)
+        if path_conflict is not None:
+            return NewDocumentSyncResult(
+                status="error",
+                document=path_conflict,
+                errors=(
+                    _sync_error(
+                        parsed_document,
+                        "DOCUMENT_PATH_CONFLICT",
+                        "当前路径已被另一篇文档占用",
+                        field="relative_path",
+                    ),
+                ),
+            )
         document = _build_knowledge_document(parsed_document, scanned_at=now)
         session.add(document)
         session.flush()
         return NewDocumentSyncResult(status="created", document=document)
 
     values = _document_values(parsed_document)
+    path_conflict = _find_document_by_path(session, parsed_document)
+    if path_conflict is not None and path_conflict.id != existing.id:
+        return NewDocumentSyncResult(
+            status="error",
+            document=existing,
+            errors=(
+                _sync_error(
+                    parsed_document,
+                    "DOCUMENT_PATH_CONFLICT",
+                    "移动后的路径已被另一篇文档占用",
+                    field="relative_path",
+                ),
+            ),
+        )
+
     if _document_hashes_unchanged(existing, values):
         return NewDocumentSyncResult(status="unchanged", document=existing)
 
@@ -101,16 +133,24 @@ def sync_markdown_document(
     return NewDocumentSyncResult(status="updated", document=existing)
 
 
-def _find_existing_document(
+def _find_document_by_id(
     session: Session,
     parsed_document: ParsedMarkdownDocument,
 ) -> KnowledgeDocument | None:
     return session.scalar(
         select(KnowledgeDocument).where(
-            or_(
-                KnowledgeDocument.document_id == parsed_document.front_matter.id,
-                KnowledgeDocument.relative_path == parsed_document.file.relative_path,
-            )
+            KnowledgeDocument.document_id == parsed_document.front_matter.id,
+        )
+    )
+
+
+def _find_document_by_path(
+    session: Session,
+    parsed_document: ParsedMarkdownDocument,
+) -> KnowledgeDocument | None:
+    return session.scalar(
+        select(KnowledgeDocument).where(
+            KnowledgeDocument.relative_path == parsed_document.file.relative_path,
         )
     )
 
@@ -205,3 +245,18 @@ def _front_matter_fingerprint(parsed_document: ParsedMarkdownDocument) -> str:
 
 def _hash_text(value: str) -> str:
     return sha256(value.encode("utf-8")).hexdigest()
+
+
+def _sync_error(
+    parsed_document: ParsedMarkdownDocument,
+    code: str,
+    message: str,
+    *,
+    field: str | None = None,
+) -> MarkdownParseIssue:
+    return MarkdownParseIssue(
+        file_path=parsed_document.file.relative_path,
+        code=code,
+        message=message,
+        field=field,
+    )
