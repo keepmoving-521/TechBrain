@@ -51,11 +51,15 @@ def test_empty_database_can_be_initialized_with_alembic(monkeypatch) -> None:
                 "select name from sqlite_master "
                 "where type = 'table' and name = 'knowledge_documents'"
             ).fetchone()
+            body_column = connection.execute(
+                "select name from pragma_table_info('knowledge_documents') where name = 'body'"
+            ).fetchone()
     finally:
         get_settings.cache_clear()
 
-    assert version == ("0002",)
+    assert version == ("0003",)
     assert table == ("knowledge_documents",)
+    assert body_column == ("body",)
 
 
 def test_migration_cli_dispatches_commands(monkeypatch) -> None:

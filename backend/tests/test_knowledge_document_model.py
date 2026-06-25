@@ -22,6 +22,7 @@ def _document(**overrides) -> KnowledgeDocument:
         "title": "SQLAlchemy joinedload 使用指南",
         "category": "backend/python",
         "summary": "SQLAlchemy joinedload 的实践说明。",
+        "body": "# SQLAlchemy joinedload 使用指南\n",
         "status": KnowledgeDocumentStatus.PUBLISHED.value,
         "visibility": "private",
         "language": "zh-CN",

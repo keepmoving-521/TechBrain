@@ -56,6 +56,7 @@ knowledge_documents
 | `title` | string(200) | 文档标题 |
 | `category` | string(255) | 主分类 |
 | `summary` | text | 摘要 |
+| `body` | text | Markdown 正文，不包含 Front Matter |
 | `content_hash` | string(64) | Markdown 正文或完整内容哈希 |
 | `front_matter_hash` | string(64) | Front Matter 哈希 |
 
@@ -201,10 +202,10 @@ last_scanned_at=扫描时间
 
 ## 11. 迁移
 
-迁移版本：
+最新迁移版本：
 
 ```text
-0002
+0003
 ```
 
 执行：

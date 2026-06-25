@@ -71,6 +71,7 @@ class KnowledgeDocument(Base):
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     category: Mapped[str] = mapped_column(String(255), nullable=False)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
 
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="published")
     visibility: Mapped[str] = mapped_column(String(32), nullable=False, default="private")
