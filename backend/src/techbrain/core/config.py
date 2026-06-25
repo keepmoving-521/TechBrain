@@ -54,6 +54,14 @@ class Settings(BaseSettings):
     database_max_overflow: int = Field(default=10, ge=0, le=100)
     database_pool_recycle_seconds: int = Field(default=1800, ge=60)
     database_pool_pre_ping: bool = True
+    knowledge_root: Path | None = None
+    knowledge_file_encoding: Literal["utf-8", "utf-8-sig"] = "utf-8"
+    knowledge_ignore_file_name: str = ".techbrainignore"
+    knowledge_extra_ignore_patterns: str = ""
+    knowledge_include_drafts: bool = False
+    knowledge_include_archive: bool = False
+    knowledge_sync_batch_size: int = Field(default=100, ge=1, le=1000)
+    knowledge_max_file_size_bytes: int = Field(default=5 * 1024 * 1024, ge=1024)
 
     @model_validator(mode="after")
     def validate_environment_safety(self) -> "Settings":

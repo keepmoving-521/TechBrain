@@ -11,6 +11,7 @@ TechBrain 后端基础工程，基于 Python 3.12 与 FastAPI。
 - 统一 HTTP、参数校验及未处理异常响应
 - 存活检查和就绪检查
 - MySQL 数据库配置、连接管理和 Alembic 迁移机制
+- Markdown 知识库配置加载与同步前校验
 - Pytest 测试与 Ruff 代码检查
 
 ## 环境要求
@@ -69,6 +70,33 @@ GET /api/v1/health/ready
 ```
 
 数据库不可用时，该接口返回 `503`，并在 `checks` 中标记 `database` 为 `error`。
+
+## Markdown 知识库配置
+
+知识库同步前会从后端配置中加载 Markdown 知识源参数，并先执行配置校验。配置不合法时，同步流程应拒绝执行并返回明确原因。
+
+常用配置项：
+
+```text
+TECHBRAIN_KNOWLEDGE_ROOT=C:\Users\87996\Documents\TechBrainKnowledge
+TECHBRAIN_KNOWLEDGE_FILE_ENCODING=utf-8
+TECHBRAIN_KNOWLEDGE_IGNORE_FILE_NAME=.techbrainignore
+TECHBRAIN_KNOWLEDGE_EXTRA_IGNORE_PATTERNS=private/**,*.secret.md
+TECHBRAIN_KNOWLEDGE_INCLUDE_DRAFTS=false
+TECHBRAIN_KNOWLEDGE_INCLUDE_ARCHIVE=false
+TECHBRAIN_KNOWLEDGE_SYNC_BATCH_SIZE=100
+TECHBRAIN_KNOWLEDGE_MAX_FILE_SIZE_BYTES=5242880
+```
+
+当前校验范围包括：
+
+- 知识库根目录必须配置、存在且为目录
+- 文件编码仅支持 `utf-8` 和 `utf-8-sig`
+- 忽略规则文件名不能为空，且不能包含路径分隔符
+- 忽略规则文件必须可按配置编码读取
+- 同步批大小和单文件大小上限必须落在允许范围内
+
+完整约定见：[知识库配置管理说明](../docs/knowledge-configuration.md)。
 
 ## 配置优先级
 
