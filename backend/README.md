@@ -16,6 +16,7 @@ TechBrain 后端基础工程，基于 Python 3.12 与 FastAPI。
 - Markdown Front Matter、正文结构、代码块和链接解析
 - Markdown 文档结构化数据模型与数据库迁移
 - Markdown 新增文档同步入库
+- Markdown 修改文档同步更新
 - Pytest 测试与 Ruff 代码检查
 
 ## 环境要求
@@ -161,6 +162,20 @@ TECHBRAIN_KNOWLEDGE_MAX_FILE_SIZE_BYTES=5242880
 - 根据 `document_id` 和 `relative_path` 保证重复同步不重复插入
 
 完整约定见：[新增文档同步说明](../docs/knowledge-new-document-sync.md)。
+
+## 修改文档同步
+
+后端提供通用文档同步服务，用于识别已存在 Markdown 文档的正文或元数据变化，并更新同一条 `knowledge_documents` 记录。
+
+同步规则：
+
+- 通过 `path_hash`、`content_hash`、`front_matter_hash` 判断变化
+- 未变化文档返回 `unchanged`，不重复更新数据库记录
+- 正文变化时更新 `body` 和 `content_hash`
+- 元数据变化时更新 Front Matter 对应结构化字段和 `front_matter_hash`
+- 更新成功后刷新 `last_scanned_at` 和 `last_synced_at`
+
+完整约定见：[修改文档同步说明](../docs/knowledge-update-document-sync.md)。
 
 ## 配置优先级
 

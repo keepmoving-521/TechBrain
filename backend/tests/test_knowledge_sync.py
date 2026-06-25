@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from techbrain.db.base import Base
 from techbrain.knowledge.scanner import MarkdownFile
-from techbrain.knowledge.sync import sync_new_markdown_document
+from techbrain.knowledge.sync import sync_markdown_document, sync_new_markdown_document
 from techbrain.models import DocumentSyncStatus, KnowledgeDocument
 
 
@@ -18,22 +18,31 @@ def _create_session() -> Session:
     return Session(engine)
 
 
-def _write_markdown(root: Path, relative_path: str, document_id: str) -> MarkdownFile:
+def _write_markdown(
+    root: Path,
+    relative_path: str,
+    document_id: str,
+    *,
+    title: str = "SQLAlchemy joinedload 使用指南",
+    summary: str = "SQLAlchemy joinedload 的实践说明。",
+    updated_at: str = "2026-06-25T10:30:00+08:00",
+    body: str = "# SQLAlchemy joinedload 使用指南\n\n正文内容。",
+) -> MarkdownFile:
     path = root / relative_path
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         f"""---
 schema_version: 1
 id: {document_id}
-title: SQLAlchemy joinedload 使用指南
+title: {title}
 category: backend/python
 tags:
   - orm
   - sqlalchemy
 status: published
 created_at: 2026-06-25T10:00:00+08:00
-updated_at: 2026-06-25T10:30:00+08:00
-summary: SQLAlchemy joinedload 的实践说明。
+updated_at: {updated_at}
+summary: {summary}
 source:
   type: original
 aliases:
@@ -42,9 +51,7 @@ language: zh-CN
 visibility: private
 ---
 
-# SQLAlchemy joinedload 使用指南
-
-正文内容。
+{body}
 """,
         encoding="utf-8",
     )
@@ -159,3 +166,105 @@ def test_sync_new_markdown_document_returns_parse_errors_without_insert() -> Non
         assert result.document is None
         assert result.errors[0].code == "FRONT_MATTER_MISSING"
         assert count == 0
+
+
+def test_sync_markdown_document_returns_unchanged_without_mutating_timestamps() -> None:
+    root = Path(".pytest_tmp") / "sync_unchanged"
+    markdown_file = _write_markdown(
+        root,
+        "backend/python/sqlalchemy-joinedload.md",
+        "sqlalchemy-joinedload",
+    )
+    first_scanned_at = datetime(2026, 6, 25, 11, 0, tzinfo=UTC)
+    second_scanned_at = datetime(2026, 6, 25, 12, 0, tzinfo=UTC)
+
+    with _create_session() as session:
+        first = sync_markdown_document(session, markdown_file, scanned_at=first_scanned_at)
+        session.commit()
+
+        original_content_hash = first.document.content_hash if first.document else None
+        original_updated_at = first.document.updated_at if first.document else None
+        second = sync_markdown_document(session, markdown_file, scanned_at=second_scanned_at)
+        session.commit()
+
+        assert first.status == "created"
+        assert second.status == "unchanged"
+        assert second.document is not None
+        assert second.document.content_hash == original_content_hash
+        assert second.document.last_scanned_at == first_scanned_at.replace(tzinfo=None)
+        assert second.document.last_synced_at == first_scanned_at.replace(tzinfo=None)
+        assert second.document.updated_at == original_updated_at
+
+
+def test_sync_markdown_document_updates_changed_body() -> None:
+    root = Path(".pytest_tmp") / "sync_changed_body"
+    markdown_file = _write_markdown(
+        root,
+        "backend/python/sqlalchemy-joinedload.md",
+        "sqlalchemy-joinedload",
+    )
+    first_scanned_at = datetime(2026, 6, 25, 11, 0, tzinfo=UTC)
+    second_scanned_at = datetime(2026, 6, 25, 12, 0, tzinfo=UTC)
+
+    with _create_session() as session:
+        first = sync_markdown_document(session, markdown_file, scanned_at=first_scanned_at)
+        session.commit()
+
+        original_content_hash = first.document.content_hash if first.document else None
+        changed_file = _write_markdown(
+            root,
+            "backend/python/sqlalchemy-joinedload.md",
+            "sqlalchemy-joinedload",
+            updated_at="2026-06-25T11:30:00+08:00",
+            body="# SQLAlchemy joinedload 使用指南\n\n更新后的正文内容。",
+        )
+        second = sync_markdown_document(session, changed_file, scanned_at=second_scanned_at)
+        session.commit()
+
+        count = len(session.scalars(select(KnowledgeDocument)).all())
+
+        assert second.status == "updated"
+        assert count == 1
+        assert second.document is not None
+        assert (
+            second.document.body.strip() == "# SQLAlchemy joinedload 使用指南\n\n更新后的正文内容。"
+        )
+        assert second.document.content_hash != original_content_hash
+        assert second.document.last_scanned_at == second_scanned_at.replace(tzinfo=None)
+        assert second.document.last_synced_at == second_scanned_at.replace(tzinfo=None)
+
+
+def test_sync_markdown_document_updates_changed_front_matter() -> None:
+    root = Path(".pytest_tmp") / "sync_changed_front_matter"
+    markdown_file = _write_markdown(
+        root,
+        "backend/python/sqlalchemy-joinedload.md",
+        "sqlalchemy-joinedload",
+    )
+
+    with _create_session() as session:
+        first = sync_markdown_document(session, markdown_file)
+        session.commit()
+
+        original_front_matter_hash = first.document.front_matter_hash if first.document else None
+        original_content_hash = first.document.content_hash if first.document else None
+        changed_file = _write_markdown(
+            root,
+            "backend/python/sqlalchemy-joinedload.md",
+            "sqlalchemy-joinedload",
+            title="SQLAlchemy joinedload 深入实践",
+            summary="更新后的摘要。",
+            updated_at="2026-06-25T12:30:00+08:00",
+        )
+        second = sync_markdown_document(session, changed_file)
+        session.commit()
+
+        count = len(session.scalars(select(KnowledgeDocument)).all())
+
+        assert second.status == "updated"
+        assert count == 1
+        assert second.document is not None
+        assert second.document.title == "SQLAlchemy joinedload 深入实践"
+        assert second.document.summary == "更新后的摘要。"
+        assert second.document.front_matter_hash != original_front_matter_hash
+        assert second.document.content_hash == original_content_hash
