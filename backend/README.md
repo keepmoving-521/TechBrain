@@ -125,3 +125,5 @@ powershell -ExecutionPolicy Bypass -File .\scripts\check.ps1 -BackendOnly
 ```
 
 响应头同时包含 `X-Request-ID`，调用方也可传入该请求头用于链路关联。
+
+完整 API 约定见：[API 基础规范](../docs/api-guidelines.md)。
