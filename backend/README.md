@@ -13,6 +13,7 @@ TechBrain 后端基础工程，基于 Python 3.12 与 FastAPI。
 - MySQL 数据库配置、连接管理和 Alembic 迁移机制
 - Markdown 知识库配置加载与同步前校验
 - Markdown 知识目录递归扫描与错误记录
+- Markdown Front Matter、正文结构、代码块和链接解析
 - Pytest 测试与 Ruff 代码检查
 
 ## 环境要求
@@ -112,6 +113,22 @@ TECHBRAIN_KNOWLEDGE_MAX_FILE_SIZE_BYTES=5242880
 - 路径不可访问、真实路径越界或文件过大时记录错误，不直接中断整个扫描
 
 完整约定见：[Markdown 文件扫描说明](../docs/markdown-scanning.md)。
+
+## Markdown 内容解析
+
+后端提供 Markdown 内容解析器，用于把扫描得到的 Markdown 文件转换为统一解析结果。
+
+解析范围：
+
+- Front Matter 字段和基础校验
+- Markdown 正文
+- 标题层级
+- 围栏代码块
+- Markdown 内联链接
+
+格式错误会返回包含文件路径、错误码、字段名、行号和列号的错误信息，便于同步任务记录失败原因。
+
+完整约定见：[Markdown 内容解析说明](../docs/markdown-parsing.md)。
 
 ## 配置优先级
 
