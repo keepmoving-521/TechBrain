@@ -12,6 +12,7 @@ TechBrain 后端基础工程，基于 Python 3.12 与 FastAPI。
 - 存活检查和就绪检查
 - MySQL 数据库配置、连接管理和 Alembic 迁移机制
 - Markdown 知识库配置加载与同步前校验
+- Markdown 知识目录递归扫描与错误记录
 - Pytest 测试与 Ruff 代码检查
 
 ## 环境要求
@@ -97,6 +98,20 @@ TECHBRAIN_KNOWLEDGE_MAX_FILE_SIZE_BYTES=5242880
 - 同步批大小和单文件大小上限必须落在允许范围内
 
 完整约定见：[知识库配置管理说明](../docs/knowledge-configuration.md)。
+
+## Markdown 文件扫描
+
+后端提供 Markdown 文件扫描器，用于从校验后的知识库根目录递归发现可同步文档。
+
+扫描规则：
+
+- 只识别 `.md` 文件
+- 跳过根目录 `README.md`
+- 跳过 `assets/`、默认忽略目录和 `.techbrainignore` 命中路径
+- 默认跳过 `drafts/` 和 `archive/`，可通过配置显式包含
+- 路径不可访问、真实路径越界或文件过大时记录错误，不直接中断整个扫描
+
+完整约定见：[Markdown 文件扫描说明](../docs/markdown-scanning.md)。
 
 ## 配置优先级
 
