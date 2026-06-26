@@ -253,6 +253,24 @@ GET /api/v1/knowledge/sync/tasks/{task_id}
 
 完整约定见：[手动触发同步说明](../docs/knowledge-manual-sync.md)。
 
+## 定时同步
+
+后端支持按配置周期自动执行 Markdown 知识库同步。定时同步与手动同步共享同步锁，避免同一知识库重叠执行；配置错误、扫描失败、解析失败和同步失败均会被记录到同步任务或调度器状态中。
+
+相关配置：
+
+```env
+TECHBRAIN_KNOWLEDGE_AUTO_SYNC_ENABLED=false
+TECHBRAIN_KNOWLEDGE_AUTO_SYNC_INTERVAL_SECONDS=3600
+```
+
+管理接口：
+
+- `GET /api/v1/knowledge/sync/schedule`
+- `PUT /api/v1/knowledge/sync/schedule`
+
+完整约定见：[定时同步说明](../docs/knowledge-scheduled-sync.md)。
+
 ## 配置优先级
 
 配置按以下优先级加载，越靠前优先级越高：

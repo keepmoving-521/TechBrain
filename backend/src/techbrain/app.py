@@ -12,6 +12,7 @@ from techbrain.core.exceptions import register_exception_handlers
 from techbrain.core.logging import configure_logging, get_logger
 from techbrain.core.middleware import RequestContextMiddleware
 from techbrain.db.session import DatabaseManager
+from techbrain.knowledge.scheduler import KnowledgeSyncScheduler
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -20,6 +21,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     configure_logging(resolved_settings)
     logger = get_logger(__name__)
     database = DatabaseManager(resolved_settings)
+    knowledge_sync_lock = Lock()
+    knowledge_sync_scheduler = KnowledgeSyncScheduler(
+        resolved_settings,
+        database,
+        knowledge_sync_lock,
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -30,9 +37,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "version": resolved_settings.app_version,
             },
         )
+        knowledge_sync_scheduler.start()
         try:
             yield
         finally:
+            knowledge_sync_scheduler.stop()
             database.dispose()
             logger.info("application.stopped")
 
@@ -47,7 +56,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     application.state.settings = resolved_settings
     application.state.database = database
-    application.state.knowledge_sync_lock = Lock()
+    application.state.knowledge_sync_lock = knowledge_sync_lock
+    application.state.knowledge_sync_scheduler = knowledge_sync_scheduler
     application.add_middleware(RequestContextMiddleware)
     register_exception_handlers(application)
     application.include_router(api_router, prefix=resolved_settings.api_v1_prefix)

@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     knowledge_include_archive: bool = False
     knowledge_sync_batch_size: int = Field(default=100, ge=1, le=1000)
     knowledge_max_file_size_bytes: int = Field(default=5 * 1024 * 1024, ge=1024)
+    knowledge_auto_sync_enabled: bool = False
+    knowledge_auto_sync_interval_seconds: int = Field(default=3600, ge=60)
 
     @model_validator(mode="after")
     def validate_environment_safety(self) -> "Settings":

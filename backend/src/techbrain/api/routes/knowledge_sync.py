@@ -19,6 +19,8 @@ from techbrain.knowledge.task import (
 )
 from techbrain.models import KnowledgeSyncTask
 from techbrain.schemas.knowledge_sync import (
+    KnowledgeSyncScheduleResponse,
+    KnowledgeSyncScheduleUpdateRequest,
     KnowledgeSyncTaskListResponse,
     KnowledgeSyncTaskResponse,
 )
@@ -57,6 +59,30 @@ def trigger_knowledge_sync(request: Request) -> KnowledgeSyncTaskResponse:
             return KnowledgeSyncTaskResponse.model_validate(task)
     finally:
         sync_lock.release()
+
+
+@router.get("/schedule", response_model=KnowledgeSyncScheduleResponse)
+def get_knowledge_sync_schedule(request: Request) -> KnowledgeSyncScheduleResponse:
+    """Get periodic knowledge synchronization runtime configuration."""
+    scheduler = request.app.state.knowledge_sync_scheduler
+    return KnowledgeSyncScheduleResponse.model_validate(scheduler.get_state())
+
+
+@router.put("/schedule", response_model=KnowledgeSyncScheduleResponse)
+def update_knowledge_sync_schedule(
+    request: Request,
+    payload: KnowledgeSyncScheduleUpdateRequest,
+) -> KnowledgeSyncScheduleResponse:
+    """Update periodic knowledge synchronization runtime configuration."""
+    scheduler = request.app.state.knowledge_sync_scheduler
+    try:
+        state = scheduler.update(
+            enabled=payload.enabled,
+            interval_seconds=payload.interval_seconds,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return KnowledgeSyncScheduleResponse.model_validate(state)
 
 
 @router.get("/tasks", response_model=KnowledgeSyncTaskListResponse)

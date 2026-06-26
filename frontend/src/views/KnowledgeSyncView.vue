@@ -3,16 +3,26 @@ import { ElMessage } from "element-plus";
 import { computed, onMounted, ref } from "vue";
 
 import {
+  getKnowledgeSyncSchedule,
   getKnowledgeSyncTask,
   listKnowledgeSyncTasks,
   triggerKnowledgeSync,
+  updateKnowledgeSyncSchedule,
+  type KnowledgeSyncSchedule,
   type KnowledgeSyncTask,
 } from "@/services/knowledgeSync";
 
 const tasks = ref<KnowledgeSyncTask[]>([]);
 const selectedTask = ref<KnowledgeSyncTask | null>(null);
+const schedule = ref<KnowledgeSyncSchedule | null>(null);
+const scheduleForm = ref({
+  enabled: false,
+  interval_seconds: 3600,
+});
 const loading = ref(false);
 const triggering = ref(false);
+const scheduleLoading = ref(false);
+const scheduleSaving = ref(false);
 
 const latestTask = computed(() => tasks.value[0] ?? null);
 
@@ -39,6 +49,38 @@ function formatTime(value: string) {
   return new Date(value).toLocaleString();
 }
 
+function formatOptionalTime(value: string | null) {
+  return value ? formatTime(value) : "-";
+}
+
+async function refreshSchedule() {
+  scheduleLoading.value = true;
+  try {
+    const current = await getKnowledgeSyncSchedule();
+    schedule.value = current;
+    scheduleForm.value = {
+      enabled: current.enabled,
+      interval_seconds: current.interval_seconds,
+    };
+  } finally {
+    scheduleLoading.value = false;
+  }
+}
+
+async function handleSaveSchedule() {
+  scheduleSaving.value = true;
+  try {
+    schedule.value = await updateKnowledgeSyncSchedule(scheduleForm.value);
+    scheduleForm.value = {
+      enabled: schedule.value.enabled,
+      interval_seconds: schedule.value.interval_seconds,
+    };
+    ElMessage.success("定时同步配置已保存");
+  } finally {
+    scheduleSaving.value = false;
+  }
+}
+
 async function refreshTasks() {
   loading.value = true;
   try {
@@ -61,6 +103,7 @@ async function handleTriggerSync() {
     ElMessage.success(`同步完成：任务 #${task.id}`);
     tasks.value = [task, ...tasks.value.filter((item) => item.id !== task.id)];
     selectedTask.value = task;
+    await refreshSchedule();
   } finally {
     triggering.value = false;
   }
@@ -71,6 +114,7 @@ async function handleSelectTask(task: KnowledgeSyncTask) {
 }
 
 onMounted(() => {
+  void refreshSchedule();
   void refreshTasks();
 });
 </script>
@@ -108,6 +152,60 @@ onMounted(() => {
       </div>
 
       <ElEmpty v-else class="placeholder-empty" description="暂无同步任务记录" />
+    </ElCard>
+
+    <ElCard shadow="never" class="content-card">
+      <template #header>
+        <div class="card-header">
+          <span>定时同步</span>
+          <ElButton :loading="scheduleLoading" @click="refreshSchedule">刷新配置</ElButton>
+        </div>
+      </template>
+
+      <ElForm v-loading="scheduleLoading" label-width="120px" class="schedule-form">
+        <ElFormItem label="启用定时同步">
+          <ElSwitch v-model="scheduleForm.enabled" />
+        </ElFormItem>
+        <ElFormItem label="同步周期">
+          <ElInputNumber
+            v-model="scheduleForm.interval_seconds"
+            :min="60"
+            :step="60"
+            controls-position="right"
+          />
+          <span class="form-tip">秒，最小 60 秒</span>
+        </ElFormItem>
+        <ElFormItem>
+          <ElButton type="primary" :loading="scheduleSaving" @click="handleSaveSchedule">
+            保存配置
+          </ElButton>
+        </ElFormItem>
+      </ElForm>
+
+      <ElDescriptions v-if="schedule" :column="3" border>
+        <ElDescriptionsItem label="当前状态">
+          <ElTag :type="schedule.enabled ? 'success' : 'info'">
+            {{ schedule.enabled ? "已启用" : "已停用" }}
+          </ElTag>
+        </ElDescriptionsItem>
+        <ElDescriptionsItem label="是否执行中">
+          <ElTag :type="schedule.running ? 'warning' : 'info'">
+            {{ schedule.running ? "执行中" : "空闲" }}
+          </ElTag>
+        </ElDescriptionsItem>
+        <ElDescriptionsItem label="最近任务">
+          {{ schedule.last_task_id ? `#${schedule.last_task_id}` : "-" }}
+        </ElDescriptionsItem>
+        <ElDescriptionsItem label="最近开始">
+          {{ formatOptionalTime(schedule.last_started_at) }}
+        </ElDescriptionsItem>
+        <ElDescriptionsItem label="最近结束">
+          {{ formatOptionalTime(schedule.last_finished_at) }}
+        </ElDescriptionsItem>
+        <ElDescriptionsItem label="最近错误">
+          {{ schedule.last_error ?? "-" }}
+        </ElDescriptionsItem>
+      </ElDescriptions>
     </ElCard>
 
     <ElCard shadow="never" class="content-card">
@@ -181,3 +279,45 @@ onMounted(() => {
     </ElCard>
   </div>
 </template>
+
+<style scoped>
+.sync-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.content-card {
+  border-radius: 12px;
+}
+
+.card-header,
+.sync-actions {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.sync-summary {
+  align-items: center;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  margin-top: 20px;
+}
+
+.schedule-form {
+  margin-bottom: 16px;
+  max-width: 520px;
+}
+
+.form-tip {
+  color: var(--el-text-color-secondary);
+  margin-left: 12px;
+}
+
+.placeholder-empty {
+  padding: 24px 0;
+}
+</style>

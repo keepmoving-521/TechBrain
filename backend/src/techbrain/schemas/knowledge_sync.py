@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class KnowledgeSyncFailureResponse(BaseModel):
@@ -44,3 +44,24 @@ class KnowledgeSyncTaskListResponse(BaseModel):
     """Synchronization task list response."""
 
     items: list[KnowledgeSyncTaskResponse]
+
+
+class KnowledgeSyncScheduleResponse(BaseModel):
+    """Periodic synchronization schedule response."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    enabled: bool
+    interval_seconds: int
+    running: bool
+    last_started_at: datetime | None = None
+    last_finished_at: datetime | None = None
+    last_task_id: int | None = None
+    last_error: str | None = None
+
+
+class KnowledgeSyncScheduleUpdateRequest(BaseModel):
+    """Periodic synchronization schedule update request."""
+
+    enabled: bool | None = None
+    interval_seconds: int | None = Field(default=None, ge=60)

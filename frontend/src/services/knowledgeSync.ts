@@ -27,6 +27,21 @@ export interface KnowledgeSyncTask {
   failures: KnowledgeSyncFailure[];
 }
 
+export interface KnowledgeSyncSchedule {
+  enabled: boolean;
+  interval_seconds: number;
+  running: boolean;
+  last_started_at: string | null;
+  last_finished_at: string | null;
+  last_task_id: number | null;
+  last_error: string | null;
+}
+
+export interface KnowledgeSyncScheduleUpdate {
+  enabled?: boolean;
+  interval_seconds?: number;
+}
+
 interface KnowledgeSyncTaskListResponse {
   items: KnowledgeSyncTask[];
 }
@@ -42,4 +57,14 @@ export async function listKnowledgeSyncTasks(): Promise<KnowledgeSyncTask[]> {
 
 export function getKnowledgeSyncTask(taskId: number): Promise<KnowledgeSyncTask> {
   return request.get<KnowledgeSyncTask>(`/knowledge/sync/tasks/${taskId}`);
+}
+
+export function getKnowledgeSyncSchedule(): Promise<KnowledgeSyncSchedule> {
+  return request.get<KnowledgeSyncSchedule>("/knowledge/sync/schedule");
+}
+
+export function updateKnowledgeSyncSchedule(
+  payload: KnowledgeSyncScheduleUpdate,
+): Promise<KnowledgeSyncSchedule> {
+  return request.put<KnowledgeSyncSchedule>("/knowledge/sync/schedule", payload);
 }

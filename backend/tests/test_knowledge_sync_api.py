@@ -73,6 +73,26 @@ def test_trigger_knowledge_sync_rejects_concurrent_request(app) -> None:
     assert response.json()["error"]["code"] == "HTTP_409"
 
 
+def test_get_knowledge_sync_schedule(client: TestClient) -> None:
+    response = client.get("/api/v1/knowledge/sync/schedule")
+
+    assert response.status_code == 200
+    assert response.json()["enabled"] is False
+    assert response.json()["interval_seconds"] == 3600
+    assert response.json()["running"] is False
+
+
+def test_update_knowledge_sync_schedule(client: TestClient) -> None:
+    response = client.put(
+        "/api/v1/knowledge/sync/schedule",
+        json={"enabled": False, "interval_seconds": 1800},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["enabled"] is False
+    assert response.json()["interval_seconds"] == 1800
+
+
 def test_get_knowledge_sync_task_returns_404(client: TestClient) -> None:
     Base.metadata.create_all(client.app.state.database.engine)
 

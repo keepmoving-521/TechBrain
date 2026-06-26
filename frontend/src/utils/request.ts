@@ -43,4 +43,8 @@ export const request = {
     const response = await http.post<T>(url, data, config);
     return response.data;
   },
+  async put<T, D = unknown>(url: string, data?: D, config?: AxiosRequestConfig): Promise<T> {
+    const response = await http.put<T>(url, data, config);
+    return response.data;
+  },
 };
