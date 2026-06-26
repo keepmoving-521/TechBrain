@@ -19,6 +19,7 @@ TechBrain 后端基础工程，基于 Python 3.12 与 FastAPI。
 - Markdown 修改文档同步更新
 - Markdown 文档移动识别
 - Markdown 文档软删除与恢复
+- Markdown 知识库全量同步任务
 - Pytest 测试与 Ruff 代码检查
 
 ## 环境要求
@@ -205,6 +206,21 @@ TECHBRAIN_KNOWLEDGE_MAX_FILE_SIZE_BYTES=5242880
 - 恢复后清空 `deleted_at`，并将 `sync_status` 改回 `synced`
 
 完整约定见：[文档删除与恢复同步说明](../docs/knowledge-delete-restore-sync.md)。
+
+## 全量同步任务
+
+后端提供全量同步任务编排函数，用于一次性处理整个 Markdown 知识库。
+
+任务流程：
+
+- 扫描知识库目录
+- 逐个解析并同步 Markdown 文档
+- 自动处理新增、修改、移动和恢复
+- 本轮扫描缺失的活动文档会被软删除
+- 单个文档失败会记录失败明细，不阻塞其他文档
+- 重复执行时未变化文档返回 `unchanged`
+
+完整约定见：[全量同步任务说明](../docs/knowledge-full-sync-task.md)。
 
 ## 配置优先级
 
