@@ -206,6 +206,24 @@ a {
   margin-top: 16px;
 }
 
+.sync-page {
+  display: grid;
+  gap: 18px;
+}
+
+.sync-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.sync-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+  gap: 18px;
+  align-items: center;
+  margin-top: 20px;
+}
+
 .not-found {
   display: grid;
   min-height: 100vh;

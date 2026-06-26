@@ -32,6 +32,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import("@/views/SystemStatusView.vue"),
         meta: { title: "系统状态" },
       },
+      {
+        path: "system/sync",
+        name: "system-sync",
+        component: () => import("@/views/KnowledgeSyncView.vue"),
+        meta: { title: "同步管理" },
+      },
     ],
   },
   {

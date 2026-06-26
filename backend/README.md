@@ -21,6 +21,7 @@ TechBrain 后端基础工程，基于 Python 3.12 与 FastAPI。
 - Markdown 文档软删除与恢复
 - Markdown 知识库全量同步任务
 - Markdown 同步任务记录与失败明细
+- Markdown 手动触发同步管理接口
 - Pytest 测试与 Ruff 代码检查
 
 ## 环境要求
@@ -237,6 +238,20 @@ TECHBRAIN_KNOWLEDGE_MAX_FILE_SIZE_BYTES=5242880
 全量同步默认会写入 `knowledge_sync_tasks` 和 `knowledge_sync_failures`，后续管理接口可基于这些表查询同步历史。
 
 完整约定见：[同步任务记录说明](../docs/knowledge-sync-task-record.md)。
+
+## 手动触发同步
+
+后端提供知识库同步管理接口：
+
+```text
+POST /api/v1/knowledge/sync
+GET /api/v1/knowledge/sync/tasks
+GET /api/v1/knowledge/sync/tasks/{task_id}
+```
+
+重复触发同步时，后端通过进程内同步锁避免并发任务冲突；已有任务执行中会返回 `409`。
+
+完整约定见：[手动触发同步说明](../docs/knowledge-manual-sync.md)。
 
 ## 配置优先级
 

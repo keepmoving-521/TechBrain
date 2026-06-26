@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Collection, DataAnalysis, Monitor, Search } from "@element-plus/icons-vue";
+import { Collection, DataAnalysis, Monitor, Refresh, Search } from "@element-plus/icons-vue";
 import { useRoute } from "vue-router";
 
 const route = useRoute();
@@ -8,6 +8,7 @@ const navigationItems = [
   { index: "/", label: "知识总览", icon: DataAnalysis },
   { index: "/knowledge", label: "知识库", icon: Collection },
   { index: "/search", label: "全文检索", icon: Search },
+  { index: "/system/sync", label: "同步管理", icon: Refresh },
   { index: "/system/status", label: "系统状态", icon: Monitor },
 ];
 </script>

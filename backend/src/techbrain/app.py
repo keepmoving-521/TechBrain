@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from threading import Lock
 
 from fastapi import FastAPI
 
@@ -46,6 +47,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     application.state.settings = resolved_settings
     application.state.database = database
+    application.state.knowledge_sync_lock = Lock()
     application.add_middleware(RequestContextMiddleware)
     register_exception_handlers(application)
     application.include_router(api_router, prefix=resolved_settings.api_v1_prefix)
