@@ -9,8 +9,18 @@ from sqlalchemy.orm import Session
 
 from techbrain.db.base import Base
 from techbrain.knowledge.config import KnowledgeRepositoryConfig
-from techbrain.knowledge.task import run_full_knowledge_sync
-from techbrain.models import DocumentSyncStatus, KnowledgeDocument
+from techbrain.knowledge.task import (
+    get_sync_task_statement,
+    list_sync_tasks_statement,
+    run_full_knowledge_sync,
+)
+from techbrain.models import (
+    DocumentSyncStatus,
+    KnowledgeDocument,
+    KnowledgeSyncFailureRecord,
+    KnowledgeSyncTask,
+    KnowledgeSyncTaskStatus,
+)
 
 
 def _create_session() -> Session:
@@ -83,16 +93,29 @@ def test_run_full_knowledge_sync_processes_repository_and_continues_after_failur
         result = run_full_knowledge_sync(session, _config(root), started_at=started_at)
 
         documents = session.scalars(select(KnowledgeDocument)).all()
+        task = session.scalar(get_sync_task_statement(result.task_id or 0))
+        failures = session.scalars(select(KnowledgeSyncFailureRecord)).all()
 
         assert result.scanned_count == 2
         assert result.created_count == 1
         assert result.failed_count == 1
         assert result.success_count == 1
+        assert result.task_id is not None
         assert result.failures[0].path == "backend/python/broken.md"
         assert result.failures[0].code == "FRONT_MATTER_MISSING"
         assert len(documents) == 1
         assert documents[0].document_id == "valid-document"
         assert documents[0].sync_status == DocumentSyncStatus.SYNCED.value
+        assert task is not None
+        assert task.status == KnowledgeSyncTaskStatus.PARTIAL_SUCCESS.value
+        assert task.scanned_count == 2
+        assert task.success_count == 1
+        assert task.failed_count == 1
+        assert len(failures) == 1
+        assert failures[0].task_id == task.id
+        assert failures[0].path == "backend/python/broken.md"
+        assert failures[0].stage == "parse"
+        assert failures[0].code == "FRONT_MATTER_MISSING"
 
 
 def test_run_full_knowledge_sync_is_idempotent_when_files_do_not_change() -> None:
@@ -108,12 +131,17 @@ def test_run_full_knowledge_sync_is_idempotent_when_files_do_not_change() -> Non
 
         second = run_full_knowledge_sync(session, _config(root), started_at=second_started_at)
         documents = session.scalars(select(KnowledgeDocument)).all()
+        tasks = session.scalars(list_sync_tasks_statement()).all()
 
         assert first.created_count == 1
         assert second.created_count == 0
         assert second.unchanged_count == 1
         assert len(documents) == 1
         assert documents[0].last_synced_at == first_last_synced_at
+        assert len(tasks) == 2
+        assert tasks[0].started_at == second_started_at.replace(tzinfo=None)
+        assert tasks[0].status == KnowledgeSyncTaskStatus.SUCCESS.value
+        assert tasks[0].success_count == 1
 
 
 def test_run_full_knowledge_sync_handles_update_move_delete_and_restore() -> None:
@@ -161,3 +189,16 @@ def test_run_full_knowledge_sync_handles_update_move_delete_and_restore() -> Non
         assert restored_document is not None
         assert restored_document.is_deleted is False
         assert restored_document.sync_status == DocumentSyncStatus.SYNCED.value
+
+
+def test_run_full_knowledge_sync_can_skip_task_recording() -> None:
+    root = _test_root("full_sync_no_record")
+    _write_markdown(root, "backend/python/valid.md", "valid-document")
+
+    with _create_session() as session:
+        result = run_full_knowledge_sync(session, _config(root), record_task=False)
+        tasks = session.scalars(select(KnowledgeSyncTask)).all()
+
+        assert result.task_id is None
+        assert result.created_count == 1
+        assert tasks == []

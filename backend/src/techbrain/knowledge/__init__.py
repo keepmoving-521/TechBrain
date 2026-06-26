@@ -17,6 +17,9 @@ from techbrain.knowledge.sync import (
 from techbrain.knowledge.task import (
     KnowledgeFullSyncResult,
     KnowledgeSyncFailure,
+    get_sync_task_statement,
+    list_sync_tasks_statement,
+    record_full_sync_result,
     run_full_knowledge_sync,
 )
 
@@ -30,7 +33,10 @@ __all__ = [
     "NewDocumentSyncResult",
     "active_knowledge_documents_statement",
     "build_knowledge_repository_config",
+    "get_sync_task_statement",
+    "list_sync_tasks_statement",
     "mark_missing_documents_deleted",
+    "record_full_sync_result",
     "run_full_knowledge_sync",
     "sync_markdown_document",
     "sync_new_markdown_document",
