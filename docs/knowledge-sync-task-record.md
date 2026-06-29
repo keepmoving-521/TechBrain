@@ -148,11 +148,13 @@ sync
 
 ## 6. 迁移
 
-最新迁移版本：
+同步任务记录由以下迁移引入：
 
 ```text
-0004
+0004_create_knowledge_sync_tasks
 ```
+
+仓库全局最新迁移可能继续推进，完整顺序以[数据库迁移说明](../backend/migrations/README.md)为准。
 
 执行：
 

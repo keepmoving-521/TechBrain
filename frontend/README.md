@@ -13,6 +13,9 @@ pnpm dev
 访问：
 
 - 前端应用：<http://127.0.0.1:5173>
+- 知识首页：<http://127.0.0.1:5173/>
+- 分类与标签浏览：<http://127.0.0.1:5173/knowledge>
+- 同步管理：<http://127.0.0.1:5173/system/sync>
 - 系统状态页：<http://127.0.0.1:5173/system/status>
 
 ## 后端代理
@@ -64,8 +67,15 @@ powershell -ExecutionPolicy Bypass -File .\scripts\check.ps1 -FrontendOnly
 
 - 基础应用布局
 - Vue Router history 路由
+- 基于真实聚合数据的知识首页及空知识库引导
+- 分类树、标签列表及文档分页浏览
+- 分类、标签、页码和排序状态 URL 持久化
+- 同步任务触发、历史结果和定时同步配置页面
 - Dashboard、知识库、搜索、系统状态和 404 页面
 - Axios 请求封装
 - 统一 API 错误提示
 - 基础主题变量和全局样式
 - Vite 开发服务器刷新 fallback
+- Vitest 组件测试与 TypeScript、ESLint、Prettier 检查
+
+Markdown 安全渲染和完整文档阅读页将在 TB-V10-030～033 中继续实现。

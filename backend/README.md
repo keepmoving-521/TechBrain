@@ -22,6 +22,10 @@ TechBrain 后端基础工程，基于 Python 3.12 与 FastAPI。
 - Markdown 知识库全量同步任务
 - Markdown 同步任务记录与失败明细
 - Markdown 手动触发同步管理接口
+- Markdown 定时同步及调度配置接口
+- 层级分类模型、同步、查询、管理、删除与文档迁移
+- 标签模型、同步、查询、管理与合并
+- 文档分页筛选、知识首页聚合及文档详情 API
 - Pytest 测试与 Ruff 代码检查
 
 ## 环境要求
@@ -71,9 +75,7 @@ python -m techbrain.db.migrate current
 python -m techbrain.db.migrate history
 ```
 
-V0.1 当前只建立迁移机制和基线版本，业务表会在后续需求中逐步加入。
-
-当前已包含 `knowledge_documents` 文档结构化数据表，用于记录 Markdown 文档的路径、状态、哈希、软删除和同步状态。
+当前迁移已推进到 `0007`，包含文档、同步任务与失败记录、层级分类、标签及文档标签关联等业务表。完整迁移清单见：[数据库迁移说明](migrations/README.md)。
 
 应用就绪检查会执行轻量数据库连接检测：
 
@@ -235,7 +237,7 @@ TECHBRAIN_KNOWLEDGE_MAX_FILE_SIZE_BYTES=5242880
 - 新增、修改、恢复、未变化和软删除数量
 - 失败文件路径、阶段、错误码、字段、行号和列号
 
-全量同步默认会写入 `knowledge_sync_tasks` 和 `knowledge_sync_failures`，后续管理接口可基于这些表查询同步历史。
+全量同步默认会写入 `knowledge_sync_tasks` 和 `knowledge_sync_failures`；当前任务列表与详情接口直接基于这些记录查询同步历史。
 
 完整约定见：[同步任务记录说明](../docs/knowledge-sync-task-record.md)。
 
@@ -270,6 +272,28 @@ TECHBRAIN_KNOWLEDGE_AUTO_SYNC_INTERVAL_SECONDS=3600
 - `PUT /api/v1/knowledge/sync/schedule`
 
 完整约定见：[定时同步说明](../docs/knowledge-scheduled-sync.md)。
+
+## 分类、标签与知识查询 API
+
+当前后端已提供以下知识管理接口：
+
+```text
+GET    /api/v1/knowledge/overview
+GET    /api/v1/documents
+GET    /api/v1/documents/{id}
+GET    /api/v1/categories/tree
+GET    /api/v1/categories/{id}
+POST   /api/v1/categories
+PATCH  /api/v1/categories/{id}
+DELETE /api/v1/categories/{id}
+GET    /api/v1/tags
+GET    /api/v1/tags/{id}
+POST   /api/v1/tags
+PATCH  /api/v1/tags/{id}
+DELETE /api/v1/tags/{id}
+```
+
+分类还支持文档迁移，标签支持关联文档查询与标签合并。接口字段、分页和错误语义详见[文档中心](../docs/README.md)。
 
 ## 配置优先级
 
