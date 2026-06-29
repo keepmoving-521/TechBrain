@@ -62,3 +62,19 @@ class CategoryUpdateRequest(BaseModel):
             if field_name in self.model_fields_set and getattr(self, field_name) is None:
                 raise ValueError(f"{field_name} 不能为 null")
         return self
+
+
+class CategoryDocumentMigrationRequest(BaseModel):
+    """Move all direct documents to another category."""
+
+    target_category_id: int = Field(ge=1)
+
+
+class CategoryDocumentMigrationResponse(BaseModel):
+    """Category document migration result."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    source_category_id: int
+    target_category_id: int
+    migrated_count: int

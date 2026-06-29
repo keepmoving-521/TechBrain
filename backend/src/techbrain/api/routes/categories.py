@@ -4,7 +4,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from threading import Lock
 
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, Request, Response, status
 from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException
 
@@ -15,6 +15,8 @@ from techbrain.knowledge.category_management import (
     CategoryNotFoundError,
     CategoryValidationError,
     create_category,
+    delete_category,
+    migrate_category_documents,
     update_category,
 )
 from techbrain.knowledge.category_query import get_category_detail, list_category_tree
@@ -22,6 +24,8 @@ from techbrain.models import KnowledgeCategory
 from techbrain.schemas.category import (
     CategoryCreateRequest,
     CategoryDetailResponse,
+    CategoryDocumentMigrationRequest,
+    CategoryDocumentMigrationResponse,
     CategoryTreeResponse,
     CategoryUpdateRequest,
 )
@@ -66,6 +70,49 @@ def update_knowledge_category(
         except CategoryConflictError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         return _category_detail_response(session, category.id)
+
+
+@router.post(
+    "/{category_id}/documents/migrate",
+    response_model=CategoryDocumentMigrationResponse,
+)
+def migrate_knowledge_category_documents(
+    request: Request,
+    category_id: int,
+    payload: CategoryDocumentMigrationRequest,
+) -> CategoryDocumentMigrationResponse:
+    """Move all documents directly assigned to a category."""
+    database: DatabaseManager = request.app.state.database
+    settings: Settings = request.app.state.settings
+    with _category_write_lock(request), database.session_factory() as session:
+        try:
+            result = migrate_category_documents(
+                session,
+                settings,
+                category_id,
+                payload.target_category_id,
+            )
+        except CategoryNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        except CategoryValidationError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        except CategoryConflictError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        return CategoryDocumentMigrationResponse.model_validate(result)
+
+
+@router.delete("/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_knowledge_category(request: Request, category_id: int) -> Response:
+    """Delete an empty leaf category."""
+    database: DatabaseManager = request.app.state.database
+    with _category_write_lock(request), database.session_factory() as session:
+        try:
+            delete_category(session, category_id)
+        except CategoryNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        except CategoryConflictError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/tree", response_model=CategoryTreeResponse)

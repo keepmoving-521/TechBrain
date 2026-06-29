@@ -63,6 +63,15 @@ class _MarkdownRewrite:
     updated_content: str
 
 
+@dataclass(frozen=True)
+class CategoryDocumentMigrationResult:
+    """Result of moving all direct documents between two categories."""
+
+    source_category_id: int
+    target_category_id: int
+    migrated_count: int
+
+
 def create_category(
     session: Session,
     *,
@@ -186,6 +195,104 @@ def update_category(
         _restore_written_files(written, settings.knowledge_file_encoding)
         raise CategoryConflictError(f"分类变更未完成: {exc}") from exc
     return category
+
+
+def migrate_category_documents(
+    session: Session,
+    settings: Settings,
+    source_category_id: int,
+    target_category_id: int,
+    *,
+    changed_at: datetime | None = None,
+) -> CategoryDocumentMigrationResult:
+    """Move all direct documents to another category with Markdown write-back."""
+    source = session.get(KnowledgeCategory, source_category_id)
+    if source is None:
+        raise CategoryNotFoundError("源分类不存在")
+    target = session.get(KnowledgeCategory, target_category_id)
+    if target is None:
+        raise CategoryNotFoundError("目标分类不存在")
+    if source.id == target.id:
+        raise CategoryConflictError("源分类和目标分类不能相同")
+
+    documents = list(
+        session.scalars(
+            select(KnowledgeDocument)
+            .where(KnowledgeDocument.category_id == source.id)
+            .order_by(KnowledgeDocument.id)
+        ).all()
+    )
+    if any(document.is_deleted for document in documents):
+        raise CategoryConflictError("源分类包含源文件已删除的文档, 无法安全迁移")
+    if not documents:
+        return CategoryDocumentMigrationResult(
+            source_category_id=source.id,
+            target_category_id=target.id,
+            migrated_count=0,
+        )
+
+    operation_time = changed_at or datetime.now(UTC)
+    rewrites = _prepare_markdown_rewrites(
+        documents,
+        {source.path: target.path},
+        settings,
+        changed_at=operation_time,
+    )
+    written: list[_MarkdownRewrite] = []
+    try:
+        for rewrite in rewrites:
+            _atomic_replace_if_unchanged(rewrite, settings.knowledge_file_encoding)
+            written.append(rewrite)
+        for rewrite in rewrites:
+            result = sync_markdown_document(
+                session,
+                _markdown_file(rewrite.path, rewrite.document.relative_path),
+                encoding=settings.knowledge_file_encoding,
+                scanned_at=operation_time,
+            )
+            if result.status == "error":
+                message = result.errors[0].message if result.errors else "文档重新同步失败"
+                raise CategoryConflictError(message)
+        session.commit()
+    except CategoryManagementError:
+        session.rollback()
+        _restore_written_files(written, settings.knowledge_file_encoding)
+        raise
+    except (OSError, UnicodeError, SQLAlchemyError, ValueError) as exc:
+        session.rollback()
+        _restore_written_files(written, settings.knowledge_file_encoding)
+        raise CategoryConflictError(f"文档迁移未完成: {exc}") from exc
+
+    return CategoryDocumentMigrationResult(
+        source_category_id=source.id,
+        target_category_id=target.id,
+        migrated_count=len(documents),
+    )
+
+
+def delete_category(session: Session, category_id: int) -> None:
+    """Delete a category only when it has no documents or child categories."""
+    category = session.get(KnowledgeCategory, category_id)
+    if category is None:
+        raise CategoryNotFoundError("分类不存在")
+
+    document_exists = session.scalar(
+        select(KnowledgeDocument.id).where(KnowledgeDocument.category_id == category.id).limit(1)
+    )
+    if document_exists is not None:
+        raise CategoryConflictError("分类仍包含文档, 请先迁移文档")
+    child_exists = session.scalar(
+        select(KnowledgeCategory.id).where(KnowledgeCategory.parent_id == category.id).limit(1)
+    )
+    if child_exists is not None:
+        raise CategoryConflictError("分类仍包含子分类, 无法直接删除")
+
+    session.delete(category)
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise CategoryConflictError("分类已被其他数据引用, 无法删除") from exc
 
 
 def _validated_name(name: str) -> str:

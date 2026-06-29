@@ -9,7 +9,11 @@ from sqlalchemy.orm import Session
 import techbrain.knowledge.category_management as category_management
 from techbrain.core.config import Environment, Settings
 from techbrain.db.base import Base
-from techbrain.knowledge.category_management import CategoryConflictError, update_category
+from techbrain.knowledge.category_management import (
+    CategoryConflictError,
+    migrate_category_documents,
+    update_category,
+)
 from techbrain.knowledge.scanner import MarkdownFile
 from techbrain.knowledge.sync import sync_markdown_document
 from techbrain.models import KnowledgeCategory, KnowledgeDocument
@@ -88,6 +92,58 @@ def test_category_markdown_batch_failure_restores_files_and_database(monkeypatch
 
         assert category is not None
         assert category.path == "backend/python"
+        assert document_categories == ["backend/python", "backend/python"]
+        assert "category: backend/python\n" in first_file.path.read_text(encoding="utf-8")
+        assert "category: backend/python\n" in second_file.path.read_text(encoding="utf-8")
+
+
+def test_document_migration_batch_failure_preserves_every_document(monkeypatch) -> None:
+    root = Path(".pytest_tmp") / "category_migration_rollback"
+    first_file = _write_markdown(root, "first.md", "migration-rollback-first")
+    second_file = _write_markdown(root, "second.md", "migration-rollback-second")
+    settings = Settings(
+        environment=Environment.TEST,
+        database_url="sqlite+pysqlite:///:memory:",
+        knowledge_root=root.resolve(),
+    )
+
+    with _create_session() as session:
+        first = sync_markdown_document(session, first_file)
+        sync_markdown_document(session, second_file)
+        target = KnowledgeCategory(
+            name="Target", slug="target", path="target", sort_order=0, status="active"
+        )
+        session.add(target)
+        session.commit()
+        assert first.document is not None
+
+        original_replace = category_management._atomic_replace_if_unchanged
+        calls = 0
+
+        def fail_on_second_write(rewrite, encoding: str) -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise CategoryConflictError("模拟迁移中途失败")
+            original_replace(rewrite, encoding)
+
+        monkeypatch.setattr(
+            category_management,
+            "_atomic_replace_if_unchanged",
+            fail_on_second_write,
+        )
+
+        with pytest.raises(CategoryConflictError, match="模拟迁移中途失败"):
+            migrate_category_documents(
+                session,
+                settings,
+                first.document.category_id,
+                target.id,
+            )
+
+        document_categories = session.scalars(
+            select(KnowledgeDocument.category).order_by(KnowledgeDocument.document_id)
+        ).all()
         assert document_categories == ["backend/python", "backend/python"]
         assert "category: backend/python\n" in first_file.path.read_text(encoding="utf-8")
         assert "category: backend/python\n" in second_file.path.read_text(encoding="utf-8")

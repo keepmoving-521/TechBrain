@@ -368,3 +368,169 @@ def test_move_category_rejects_cycle_and_target_path_conflict(app) -> None:
     assert "后代分类" in cycle.json()["error"]["message"]
     assert conflict.status_code == 409
     assert conflict.json()["error"]["message"] == "目标分类路径已存在: database/python"
+
+
+def test_delete_empty_leaf_category(app) -> None:
+    Base.metadata.create_all(app.state.database.engine)
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        created = client.post(
+            "/api/v1/categories",
+            json={"name": "Temporary", "slug": "temporary"},
+        )
+        category_id = created.json()["id"]
+        deleted = client.delete(f"/api/v1/categories/{category_id}")
+        detail = client.get(f"/api/v1/categories/{category_id}")
+
+    assert deleted.status_code == 204
+    assert deleted.content == b""
+    assert detail.status_code == 404
+
+
+def test_migrate_category_documents_then_delete_without_orphans(app) -> None:
+    root = Path(".pytest_tmp") / "category_document_migration"
+    app.state.settings = Settings(
+        environment=Environment.TEST,
+        database_url="sqlite+pysqlite:///:memory:",
+        knowledge_root=root.resolve(),
+    )
+    Base.metadata.create_all(app.state.database.engine)
+    first_file = _write_markdown(
+        root,
+        "backend/python/first.md",
+        "migration-first",
+        "backend/python",
+    )
+    second_file = _write_markdown(
+        root,
+        "backend/python/second.md",
+        "migration-second",
+        "backend/python",
+    )
+    with app.state.database.session_factory() as session:
+        first = sync_markdown_document(session, first_file)
+        sync_markdown_document(session, second_file)
+        target = KnowledgeCategory(
+            name="MySQL",
+            slug="mysql",
+            path="database/mysql",
+            sort_order=0,
+            status="active",
+            parent=KnowledgeCategory(
+                name="Database",
+                slug="database",
+                path="database",
+                sort_order=0,
+                status="active",
+            ),
+        )
+        session.add(target)
+        session.commit()
+        assert first.document is not None
+        source_id = first.document.category_id
+        target_id = target.id
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        migration = client.post(
+            f"/api/v1/categories/{source_id}/documents/migrate",
+            json={"target_category_id": target_id},
+        )
+        deleted = client.delete(f"/api/v1/categories/{source_id}")
+        with app.state.database.session_factory() as session:
+            document_links = session.execute(
+                select(KnowledgeDocument.category_id, KnowledgeDocument.category).order_by(
+                    KnowledgeDocument.document_id
+                )
+            ).all()
+            source = session.get(KnowledgeCategory, source_id)
+
+    assert migration.status_code == 200
+    assert migration.json() == {
+        "source_category_id": source_id,
+        "target_category_id": target_id,
+        "migrated_count": 2,
+    }
+    assert deleted.status_code == 204
+    assert source is None
+    assert document_links == [
+        (target_id, "database/mysql"),
+        (target_id, "database/mysql"),
+    ]
+    assert "category: database/mysql\n" in first_file.path.read_text(encoding="utf-8")
+    assert "category: database/mysql\n" in second_file.path.read_text(encoding="utf-8")
+
+
+def test_delete_category_requires_document_migration_and_child_removal(app) -> None:
+    root = Path(".pytest_tmp") / "category_delete_guards"
+    app.state.settings = Settings(
+        environment=Environment.TEST,
+        database_url="sqlite+pysqlite:///:memory:",
+        knowledge_root=root.resolve(),
+    )
+    Base.metadata.create_all(app.state.database.engine)
+    markdown_file = _write_markdown(
+        root,
+        "backend/python/note.md",
+        "delete-guard-note",
+        "backend/python",
+    )
+    with app.state.database.session_factory() as session:
+        result = sync_markdown_document(session, markdown_file)
+        target = KnowledgeCategory(
+            name="Target", slug="target", path="target", sort_order=0, status="active"
+        )
+        session.add(target)
+        session.commit()
+        assert result.document is not None
+        source_id = result.document.category_id
+        target_id = target.id
+        child = KnowledgeCategory(
+            parent=session.get(KnowledgeCategory, source_id),
+            name="Child",
+            slug="child",
+            path="backend/python/child",
+            sort_order=0,
+            status="active",
+        )
+        session.add(child)
+        session.commit()
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        has_document = client.delete(f"/api/v1/categories/{source_id}")
+        migrated = client.post(
+            f"/api/v1/categories/{source_id}/documents/migrate",
+            json={"target_category_id": target_id},
+        )
+        has_child = client.delete(f"/api/v1/categories/{source_id}")
+
+    assert has_document.status_code == 409
+    assert "请先迁移文档" in has_document.json()["error"]["message"]
+    assert migrated.status_code == 200
+    assert has_child.status_code == 409
+    assert "包含子分类" in has_child.json()["error"]["message"]
+
+
+def test_migrate_category_documents_rejects_same_or_missing_target(app) -> None:
+    Base.metadata.create_all(app.state.database.engine)
+    with app.state.database.session_factory() as session:
+        source = KnowledgeCategory(
+            name="Source", slug="source", path="source", sort_order=0, status="active"
+        )
+        session.add(source)
+        session.commit()
+        source_id = source.id
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        same = client.post(
+            f"/api/v1/categories/{source_id}/documents/migrate",
+            json={"target_category_id": source_id},
+        )
+        missing = client.post(
+            f"/api/v1/categories/{source_id}/documents/migrate",
+            json={"target_category_id": 9999},
+        )
+
+    assert same.status_code == 409
+    assert same.json()["error"]["message"] == "源分类和目标分类不能相同"
+    assert missing.status_code == 404
+    assert missing.json()["error"]["message"] == "目标分类不存在"
