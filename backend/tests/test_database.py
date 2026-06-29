@@ -66,15 +66,81 @@ def test_empty_database_can_be_initialized_with_alembic(monkeypatch) -> None:
                 "select name from sqlite_master "
                 "where type = 'table' and name = 'knowledge_categories'"
             ).fetchone()
+            category_id_column = connection.execute(
+                "select name from pragma_table_info('knowledge_documents') "
+                "where name = 'category_id'"
+            ).fetchone()
     finally:
         get_settings.cache_clear()
 
-    assert version == ("0005",)
+    assert version == ("0006",)
     assert table == ("knowledge_documents",)
     assert body_column == ("body",)
     assert task_table == ("knowledge_sync_tasks",)
     assert failure_table == ("knowledge_sync_failures",)
     assert category_table == ("knowledge_categories",)
+    assert category_id_column == ("category_id",)
+
+
+def test_category_link_migration_backfills_existing_documents(monkeypatch) -> None:
+    test_dir = Path(".pytest_tmp")
+    test_dir.mkdir(exist_ok=True)
+    database_path = test_dir / f"techbrain_category_backfill_{uuid.uuid4().hex}.db"
+
+    monkeypatch.setenv("TECHBRAIN_DATABASE_URL", f"sqlite+pysqlite:///{database_path.as_posix()}")
+    get_settings.cache_clear()
+
+    try:
+        upgrade("0005")
+        with sqlite3.connect(database_path) as connection:
+            connection.execute(
+                "insert into knowledge_documents ("
+                "document_id, title, category, body, status, visibility, language, "
+                "relative_path, absolute_path, path_hash, content_hash, front_matter_hash, "
+                "tags, aliases, source, source_created_at, source_updated_at, sync_status, "
+                "is_deleted"
+                ") values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "existing-document",
+                    "Existing document",
+                    "backend/python",
+                    "# Existing document",
+                    "published",
+                    "private",
+                    "zh-CN",
+                    "backend/python/existing.md",
+                    "D:/Knowledge/backend/python/existing.md",
+                    "a" * 64,
+                    "b" * 64,
+                    "c" * 64,
+                    "[]",
+                    "[]",
+                    "{}",
+                    "2026-06-29 10:00:00",
+                    "2026-06-29 10:00:00",
+                    "synced",
+                    0,
+                ),
+            )
+            connection.commit()
+
+        upgrade("head")
+
+        with sqlite3.connect(database_path) as connection:
+            categories = connection.execute(
+                "select path, parent_id from knowledge_categories order by path"
+            ).fetchall()
+            document_link = connection.execute(
+                "select c.path from knowledge_documents d "
+                "join knowledge_categories c on c.id = d.category_id"
+            ).fetchone()
+    finally:
+        get_settings.cache_clear()
+
+    assert categories[0] == ("backend", None)
+    assert categories[1][0] == "backend/python"
+    assert categories[1][1] is not None
+    assert document_link == ("backend/python",)
 
 
 def test_migration_cli_dispatches_commands(monkeypatch) -> None:

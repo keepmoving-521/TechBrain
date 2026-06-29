@@ -18,6 +18,7 @@ HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$")
 FENCED_CODE_PATTERN = re.compile(r"^(```|~~~)\s*([^\s`]*)?.*$")
 INLINE_LINK_PATTERN = re.compile(r"(?<!!)\[([^\]]+)]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{1,118}[a-z0-9]$")
+CATEGORY_PART_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$")
 
 
 @dataclass(frozen=True)
@@ -315,8 +316,17 @@ def _validate_front_matter(
         errors.append(_field_error(markdown_file, "FRONT_MATTER_INVALID_ID", "id"))
     if title is not None and (not title.strip() or title.strip().startswith("#")):
         errors.append(_field_error(markdown_file, "FRONT_MATTER_INVALID_TITLE", "title"))
-    if category is not None and not _is_valid_category(category):
-        errors.append(_field_error(markdown_file, "FRONT_MATTER_INVALID_CATEGORY", "category"))
+    if category is not None:
+        category_error = _category_validation_error(category)
+        if category_error is not None:
+            errors.append(
+                _field_error(
+                    markdown_file,
+                    "FRONT_MATTER_INVALID_CATEGORY",
+                    "category",
+                    f"Front Matter 字段 category 非法: {category_error}",
+                )
+            )
     if created_at is not None and updated_at is not None and updated_at < created_at:
         errors.append(
             _field_error(
@@ -541,10 +551,28 @@ def _parse_datetime(value: str) -> datetime | None:
 
 
 def _is_valid_category(category: str) -> bool:
-    if not category or category.startswith("/") or category.endswith("/") or ".." in category:
-        return False
-    parts = category.split("/")
-    return all(part and part not in RESERVED_CATEGORY_PARTS for part in parts)
+    return _category_validation_error(category) is None
+
+
+def _category_validation_error(category: str) -> str | None:
+    if not category:
+        return "分类路径不能为空"
+    if len(category) > 512:
+        return "分类路径不能超过 512 个字符"
+    if category.startswith("/") or category.endswith("/"):
+        return "分类路径不能以 / 开头或结尾"
+
+    for position, part in enumerate(category.split("/"), start=1):
+        if not part:
+            return f"分类路径第 {position} 段不能为空"
+        if part in RESERVED_CATEGORY_PARTS:
+            return f"分类路径不能使用保留目录: {part}"
+        if not CATEGORY_PART_PATTERN.fullmatch(part):
+            return (
+                f"分类路径第 {position} 段 {part!r} 只能包含小写字母、数字和中划线, "
+                "且不能以中划线开头或结尾"
+            )
+    return None
 
 
 def _extract_headings(body: str, body_start_line: int) -> tuple[MarkdownHeading, ...]:

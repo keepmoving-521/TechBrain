@@ -6,7 +6,12 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from techbrain.db.base import Base
-from techbrain.models import DocumentSyncStatus, KnowledgeDocument, KnowledgeDocumentStatus
+from techbrain.models import (
+    DocumentSyncStatus,
+    KnowledgeCategory,
+    KnowledgeDocument,
+    KnowledgeDocumentStatus,
+)
 
 
 def _create_session() -> Session:
@@ -17,10 +22,26 @@ def _create_session() -> Session:
 
 def _document(**overrides) -> KnowledgeDocument:
     now = datetime(2026, 6, 25, 10, 0, tzinfo=UTC)
+    backend = KnowledgeCategory(
+        name="backend",
+        slug="backend",
+        path="backend",
+        sort_order=0,
+        status="active",
+    )
+    python = KnowledgeCategory(
+        parent=backend,
+        name="python",
+        slug="python",
+        path="backend/python",
+        sort_order=0,
+        status="active",
+    )
     values = {
         "document_id": "sqlalchemy-joinedload",
         "title": "SQLAlchemy joinedload 使用指南",
         "category": "backend/python",
+        "category_node": python,
         "summary": "SQLAlchemy joinedload 的实践说明。",
         "body": "# SQLAlchemy joinedload 使用指南\n",
         "status": KnowledgeDocumentStatus.PUBLISHED.value,
@@ -58,6 +79,7 @@ def test_knowledge_document_can_be_created_and_queried() -> None:
         assert saved is not None
         assert saved.relative_path == "backend/python/sqlalchemy-joinedload.md"
         assert saved.tags == ["orm", "sqlalchemy"]
+        assert saved.category_node.path == "backend/python"
         assert saved.sync_status == DocumentSyncStatus.PENDING.value
 
 

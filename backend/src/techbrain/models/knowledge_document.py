@@ -1,13 +1,29 @@
 """Knowledge document ORM model."""
 
+from __future__ import annotations
+
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, Index, Integer, String, Text, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    func,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from techbrain.db.base import Base
+
+if TYPE_CHECKING:
+    from techbrain.models.knowledge_category import KnowledgeCategory
 
 
 class KnowledgeDocumentStatus(StrEnum):
@@ -63,6 +79,7 @@ class KnowledgeDocument(Base):
         Index("ix_knowledge_documents_status", "status"),
         Index("ix_knowledge_documents_sync_status", "sync_status"),
         Index("ix_knowledge_documents_is_deleted", "is_deleted"),
+        Index("ix_knowledge_documents_category_id", "category_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -70,6 +87,11 @@ class KnowledgeDocument(Base):
     document_id: Mapped[str] = mapped_column(String(120), nullable=False)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     category: Mapped[str] = mapped_column(String(255), nullable=False)
+    category_id: Mapped[int] = mapped_column(
+        ForeignKey("knowledge_categories.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    category_node: Mapped[KnowledgeCategory] = relationship(back_populates="documents")
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     body: Mapped[str] = mapped_column(Text, nullable=False)
 

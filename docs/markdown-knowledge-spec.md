@@ -123,7 +123,7 @@ python/backend/sqlalchemy/orm/performance/query/joinedload/note.md
 分类目录命名规则：
 
 - 使用小写英文、数字和连字符：`backend`、`python`、`rag`。
-- 中文分类允许使用中文目录名，但同一知识库内应保持一致。
+- 分类展示名称可以使用中文；目录名和 Front Matter 分类路径使用小写英文、数字和连字符组成的稳定 slug。
 - 不使用空格，使用 `-` 代替。
 - 不使用标点符号：`/ \ : * ? " < > | # % & { } $ ! ' @ + =`。
 - 不使用临时性词语，例如 `new`、`todo`、`misc2`。

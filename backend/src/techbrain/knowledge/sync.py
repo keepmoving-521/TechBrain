@@ -8,13 +8,14 @@ from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from techbrain.knowledge.category_sync import CategoryPathError, sync_category_path
 from techbrain.knowledge.parser import (
     MarkdownParseIssue,
     ParsedMarkdownDocument,
     parse_markdown_file,
 )
 from techbrain.knowledge.scanner import MarkdownFile
-from techbrain.models import DocumentSyncStatus, KnowledgeDocument
+from techbrain.models import DocumentSyncStatus, KnowledgeCategory, KnowledgeDocument
 
 
 @dataclass(frozen=True)
@@ -63,7 +64,14 @@ def sync_new_markdown_document(
         return NewDocumentSyncResult(status="skipped", document=existing)
 
     now = scanned_at or datetime.now(UTC)
-    document = _build_knowledge_document(parsed_document, scanned_at=now)
+    category_result = _resolve_category(session, parsed_document)
+    if isinstance(category_result, MarkdownParseIssue):
+        return NewDocumentSyncResult(status="error", document=None, errors=(category_result,))
+    document = _build_knowledge_document(
+        parsed_document,
+        category=category_result,
+        scanned_at=now,
+    )
     session.add(document)
     session.flush()
 
@@ -105,7 +113,14 @@ def sync_markdown_document(
                     ),
                 ),
             )
-        document = _build_knowledge_document(parsed_document, scanned_at=now)
+        category_result = _resolve_category(session, parsed_document)
+        if isinstance(category_result, MarkdownParseIssue):
+            return NewDocumentSyncResult(status="error", document=None, errors=(category_result,))
+        document = _build_knowledge_document(
+            parsed_document,
+            category=category_result,
+            scanned_at=now,
+        )
         session.add(document)
         session.flush()
         return NewDocumentSyncResult(status="created", document=document)
@@ -126,8 +141,17 @@ def sync_markdown_document(
             ),
         )
 
+    category_result = _resolve_category(session, parsed_document)
+    if isinstance(category_result, MarkdownParseIssue):
+        return NewDocumentSyncResult(
+            status="error",
+            document=existing,
+            errors=(category_result,),
+        )
+
     if existing.is_deleted:
         _apply_document_values(existing, values)
+        existing.category_node = category_result
         existing.sync_status = DocumentSyncStatus.SYNCED.value
         existing.sync_error = None
         existing.last_scanned_at = now
@@ -137,10 +161,11 @@ def sync_markdown_document(
         session.flush()
         return NewDocumentSyncResult(status="restored", document=existing)
 
-    if _document_hashes_unchanged(existing, values):
+    if _document_hashes_unchanged(existing, values) and existing.category_id == category_result.id:
         return NewDocumentSyncResult(status="unchanged", document=existing)
 
     _apply_document_values(existing, values)
+    existing.category_node = category_result
     existing.sync_status = DocumentSyncStatus.SYNCED.value
     existing.sync_error = None
     existing.last_scanned_at = now
@@ -213,11 +238,13 @@ def _find_document_by_path(
 def _build_knowledge_document(
     parsed_document: ParsedMarkdownDocument,
     *,
+    category: KnowledgeCategory,
     scanned_at: datetime,
 ) -> KnowledgeDocument:
     values = _document_values(parsed_document)
     return KnowledgeDocument(
         **values,
+        category_node=category,
         sync_status=DocumentSyncStatus.SYNCED.value,
         sync_error=None,
         last_scanned_at=scanned_at,
@@ -225,6 +252,21 @@ def _build_knowledge_document(
         is_deleted=False,
         deleted_at=None,
     )
+
+
+def _resolve_category(
+    session: Session,
+    parsed_document: ParsedMarkdownDocument,
+) -> KnowledgeCategory | MarkdownParseIssue:
+    try:
+        return sync_category_path(session, parsed_document.front_matter.category)
+    except CategoryPathError as exc:
+        return _sync_error(
+            parsed_document,
+            "CATEGORY_INVALID_PATH",
+            str(exc),
+            field="category",
+        )
 
 
 def _document_values(parsed_document: ParsedMarkdownDocument) -> dict[str, object]:

@@ -6,11 +6,15 @@ import re
 import unicodedata
 from datetime import datetime
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from techbrain.db.base import Base
+
+if TYPE_CHECKING:
+    from techbrain.models.knowledge_document import KnowledgeDocument
 
 CATEGORY_NAME_MAX_LENGTH = 80
 CATEGORY_SLUG_MAX_LENGTH = 80
@@ -70,6 +74,7 @@ class KnowledgeCategory(Base):
         cascade="save-update, merge",
         order_by="(KnowledgeCategory.sort_order, KnowledgeCategory.id)",
     )
+    documents: Mapped[list[KnowledgeDocument]] = relationship(back_populates="category_node")
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

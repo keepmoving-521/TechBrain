@@ -6,7 +6,7 @@
 
 分类用于为 Markdown 知识文档提供稳定的层级组织能力。
 
-当前阶段只建立分类结构化数据模型，不强制改变 `knowledge_documents.category` 的字符串存储方式。后续分类管理、文档分类绑定和分类同步可以在该模型基础上继续迭代。
+TB-V10-016 起，`knowledge_documents.category_id` 通过外键关联末级分类；原 `knowledge_documents.category` 字符串继续作为 Markdown 分类路径镜像，用于一致性核对和后续回写。
 
 ## 2. 数据表
 

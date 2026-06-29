@@ -14,7 +14,7 @@ from techbrain.knowledge.sync import (
     sync_markdown_document,
     sync_new_markdown_document,
 )
-from techbrain.models import DocumentSyncStatus, KnowledgeDocument
+from techbrain.models import DocumentSyncStatus, KnowledgeCategory, KnowledgeDocument
 
 
 def _create_session() -> Session:
@@ -32,6 +32,7 @@ def _write_markdown(
     summary: str = "SQLAlchemy joinedload 的实践说明。",
     updated_at: str = "2026-06-25T10:30:00+08:00",
     body: str = "# SQLAlchemy joinedload 使用指南\n\n正文内容。",
+    category: str = "backend/python",
 ) -> MarkdownFile:
     path = root / relative_path
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -40,7 +41,7 @@ def _write_markdown(
 schema_version: 1
 id: {document_id}
 title: {title}
-category: backend/python
+category: {category}
 tags:
   - orm
   - sqlalchemy
@@ -87,6 +88,8 @@ def test_sync_new_markdown_document_creates_structured_record() -> None:
         assert saved.document_id == "sqlalchemy-joinedload"
         assert saved.title == "SQLAlchemy joinedload 使用指南"
         assert saved.category == "backend/python"
+        assert saved.category_node.path == "backend/python"
+        assert saved.category_id == saved.category_node.id
         assert saved.body.strip() == "# SQLAlchemy joinedload 使用指南\n\n正文内容。"
         assert saved.tags == ["orm", "sqlalchemy"]
         assert saved.aliases == ["joinedload"]
@@ -100,6 +103,74 @@ def test_sync_new_markdown_document_creates_structured_record() -> None:
         assert saved.last_scanned_at is not None
         assert saved.last_synced_at is not None
         assert saved.is_deleted is False
+
+
+def test_sync_markdown_document_creates_and_reuses_category_tree() -> None:
+    root = Path(".pytest_tmp") / "sync_category_tree"
+    first_file = _write_markdown(root, "backend/python/first.md", "first-document")
+    second_file = _write_markdown(root, "backend/python/second.md", "second-document")
+
+    with _create_session() as session:
+        first = sync_markdown_document(session, first_file)
+        second = sync_markdown_document(session, second_file)
+        session.commit()
+
+        categories = session.scalars(
+            select(KnowledgeCategory).order_by(KnowledgeCategory.path)
+        ).all()
+
+        assert [category.path for category in categories] == ["backend", "backend/python"]
+        assert categories[1].parent_id == categories[0].id
+        assert first.document is not None
+        assert second.document is not None
+        assert first.document.category_id == categories[1].id
+        assert second.document.category_id == categories[1].id
+
+
+def test_sync_markdown_document_updates_category_relationship() -> None:
+    root = Path(".pytest_tmp") / "sync_category_change"
+    markdown_file = _write_markdown(root, "backend/python/note.md", "category-note")
+
+    with _create_session() as session:
+        first = sync_markdown_document(session, markdown_file)
+        session.commit()
+        original_category_id = first.document.category_id if first.document else None
+
+        changed_file = _write_markdown(
+            root,
+            "backend/python/note.md",
+            "category-note",
+            category="database/mysql",
+            updated_at="2026-06-25T12:00:00+08:00",
+        )
+        second = sync_markdown_document(session, changed_file)
+        session.commit()
+
+        assert second.status == "updated"
+        assert second.document is not None
+        assert second.document.category == "database/mysql"
+        assert second.document.category_node.path == "database/mysql"
+        assert second.document.category_id != original_category_id
+
+
+def test_sync_markdown_document_rejects_invalid_category_with_clear_error() -> None:
+    root = Path(".pytest_tmp") / "sync_invalid_category"
+    markdown_file = _write_markdown(
+        root,
+        "backend/python/invalid.md",
+        "invalid-category",
+        category="Backend/Python",
+    )
+
+    with _create_session() as session:
+        result = sync_markdown_document(session, markdown_file)
+
+        assert result.status == "error"
+        assert result.errors[0].code == "FRONT_MATTER_INVALID_CATEGORY"
+        assert result.errors[0].field == "category"
+        assert "只能包含小写字母" in result.errors[0].message
+        assert session.scalars(select(KnowledgeDocument)).all() == []
+        assert session.scalars(select(KnowledgeCategory)).all() == []
 
 
 def test_sync_new_markdown_document_is_idempotent_by_document_id() -> None:
