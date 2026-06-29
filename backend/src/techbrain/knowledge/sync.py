@@ -272,6 +272,7 @@ def _resolve_category(
 def _document_values(parsed_document: ParsedMarkdownDocument) -> dict[str, object]:
     front_matter = parsed_document.front_matter
     body = parsed_document.body
+    content_hash, front_matter_hash = calculate_parsed_document_hashes(parsed_document)
     return {
         "document_id": front_matter.id,
         "title": front_matter.title,
@@ -284,14 +285,24 @@ def _document_values(parsed_document: ParsedMarkdownDocument) -> dict[str, objec
         "relative_path": parsed_document.file.relative_path,
         "absolute_path": str(parsed_document.file.path),
         "path_hash": _hash_text(parsed_document.file.relative_path),
-        "content_hash": _hash_text(body),
-        "front_matter_hash": _hash_text(_front_matter_fingerprint(parsed_document)),
+        "content_hash": content_hash,
+        "front_matter_hash": front_matter_hash,
         "tags": list(front_matter.tags),
         "aliases": list(front_matter.aliases),
         "source": _source_to_dict(front_matter.source),
         "source_created_at": front_matter.created_at,
         "source_updated_at": front_matter.updated_at,
     }
+
+
+def calculate_parsed_document_hashes(
+    parsed_document: ParsedMarkdownDocument,
+) -> tuple[str, str]:
+    """Return the body and semantic Front Matter hashes for optimistic writes."""
+    return (
+        _hash_text(parsed_document.body),
+        _hash_text(_front_matter_fingerprint(parsed_document)),
+    )
 
 
 def _document_hashes_unchanged(

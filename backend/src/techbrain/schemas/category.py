@@ -1,6 +1,6 @@
 """Knowledge category API schemas."""
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class CategorySummaryResponse(BaseModel):
@@ -36,3 +36,29 @@ class CategoryDetailResponse(CategorySummaryResponse):
 
     parent: CategorySummaryResponse | None = None
     children: list[CategorySummaryResponse] = Field(default_factory=list)
+
+
+class CategoryCreateRequest(BaseModel):
+    """Create an empty category."""
+
+    name: str = Field(min_length=1, max_length=80)
+    slug: str = Field(min_length=1, max_length=80)
+    parent_id: int | None = Field(default=None, ge=1)
+    sort_order: int = Field(default=0, ge=0)
+
+
+class CategoryUpdateRequest(BaseModel):
+    """Rename, move or reorder one category."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    slug: str | None = Field(default=None, min_length=1, max_length=80)
+    parent_id: int | None = Field(default=None, ge=1)
+    sort_order: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def reject_null_non_nullable_updates(self) -> "CategoryUpdateRequest":
+        """Allow null only for parent_id, where it means move to the root."""
+        for field_name in ("name", "slug", "sort_order"):
+            if field_name in self.model_fields_set and getattr(self, field_name) is None:
+                raise ValueError(f"{field_name} 不能为 null")
+        return self
