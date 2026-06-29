@@ -14,7 +14,13 @@ from techbrain.knowledge.sync import (
     sync_markdown_document,
     sync_new_markdown_document,
 )
-from techbrain.models import DocumentSyncStatus, KnowledgeCategory, KnowledgeDocument
+from techbrain.models import (
+    DocumentSyncStatus,
+    KnowledgeCategory,
+    KnowledgeDocument,
+    KnowledgeTag,
+    KnowledgeTagStatus,
+)
 
 
 def _create_session() -> Session:
@@ -33,18 +39,18 @@ def _write_markdown(
     updated_at: str = "2026-06-25T10:30:00+08:00",
     body: str = "# SQLAlchemy joinedload 使用指南\n\n正文内容。",
     category: str = "backend/python",
+    tags: tuple[str, ...] = ("orm", "sqlalchemy"),
 ) -> MarkdownFile:
     path = root / relative_path
     path.parent.mkdir(parents=True, exist_ok=True)
+    tags_yaml = "tags: []" if not tags else "tags:\n" + "\n".join(f"  - {tag}" for tag in tags)
     path.write_text(
         f"""---
 schema_version: 1
 id: {document_id}
 title: {title}
 category: {category}
-tags:
-  - orm
-  - sqlalchemy
+{tags_yaml}
 status: published
 created_at: 2026-06-25T10:00:00+08:00
 updated_at: {updated_at}
@@ -92,6 +98,7 @@ def test_sync_new_markdown_document_creates_structured_record() -> None:
         assert saved.category_id == saved.category_node.id
         assert saved.body.strip() == "# SQLAlchemy joinedload 使用指南\n\n正文内容。"
         assert saved.tags == ["orm", "sqlalchemy"]
+        assert [tag.normalized_name for tag in saved.tag_nodes] == ["orm", "sqlalchemy"]
         assert saved.aliases == ["joinedload"]
         assert saved.source == {"type": "original"}
         assert saved.relative_path == "backend/python/sqlalchemy-joinedload.md"
@@ -103,6 +110,111 @@ def test_sync_new_markdown_document_creates_structured_record() -> None:
         assert saved.last_scanned_at is not None
         assert saved.last_synced_at is not None
         assert saved.is_deleted is False
+
+
+def test_sync_markdown_document_updates_structured_tag_associations() -> None:
+    root = Path(".pytest_tmp") / "sync_tag_change"
+    markdown_file = _write_markdown(root, "backend/python/tags.md", "tag-change")
+
+    with _create_session() as session:
+        first = sync_markdown_document(session, markdown_file)
+        session.commit()
+        assert first.document is not None
+        original_orm_id = next(
+            tag.id for tag in first.document.tag_nodes if tag.normalized_name == "orm"
+        )
+
+        changed_file = _write_markdown(
+            root,
+            "backend/python/tags.md",
+            "tag-change",
+            tags=("ORM", "performance"),
+            updated_at="2026-06-25T12:00:00+08:00",
+        )
+        second = sync_markdown_document(session, changed_file)
+        session.commit()
+
+        all_tags = session.scalars(
+            select(KnowledgeTag).order_by(KnowledgeTag.normalized_name)
+        ).all()
+
+        assert second.status == "updated"
+        assert second.document is not None
+        assert second.document.tags == ["ORM", "performance"]
+        assert {tag.normalized_name for tag in second.document.tag_nodes} == {
+            "orm",
+            "performance",
+        }
+        assert (
+            next(tag.id for tag in second.document.tag_nodes if tag.normalized_name == "orm")
+            == original_orm_id
+        )
+        assert {tag.normalized_name for tag in all_tags} == {"orm", "performance", "sqlalchemy"}
+        sqlalchemy = next(tag for tag in all_tags if tag.normalized_name == "sqlalchemy")
+        assert sqlalchemy.documents == []
+
+
+def test_sync_markdown_document_repairs_missing_tag_relations_when_hashes_match() -> None:
+    root = Path(".pytest_tmp") / "sync_tag_repair"
+    markdown_file = _write_markdown(root, "backend/python/repair.md", "tag-repair")
+
+    with _create_session() as session:
+        first = sync_markdown_document(session, markdown_file)
+        session.commit()
+        assert first.document is not None
+        first.document.tag_nodes = []
+        session.commit()
+
+        repaired = sync_markdown_document(session, markdown_file)
+        session.commit()
+
+        assert repaired.status == "updated"
+        assert repaired.document is not None
+        assert {tag.normalized_name for tag in repaired.document.tag_nodes} == {
+            "orm",
+            "sqlalchemy",
+        }
+
+
+def test_sync_markdown_document_reactivates_archived_front_matter_tag() -> None:
+    root = Path(".pytest_tmp") / "sync_tag_reactivate"
+    markdown_file = _write_markdown(root, "backend/python/reactivate.md", "tag-reactivate")
+
+    with _create_session() as session:
+        first = sync_markdown_document(session, markdown_file)
+        session.commit()
+        assert first.document is not None
+        first.document.tag_nodes[0].status = KnowledgeTagStatus.ARCHIVED.value
+        session.commit()
+
+        result = sync_markdown_document(session, markdown_file)
+        session.commit()
+
+        assert result.status == "updated"
+        assert result.document is not None
+        assert all(
+            tag.status == KnowledgeTagStatus.ACTIVE.value for tag in result.document.tag_nodes
+        )
+
+
+def test_sync_markdown_document_rejects_tags_that_duplicate_after_normalization() -> None:
+    root = Path(".pytest_tmp") / "sync_tag_normalized_duplicate"
+    markdown_file = _write_markdown(
+        root,
+        "backend/python/duplicate-tags.md",
+        "duplicate-normalized-tags",
+        tags=("ORM", "\uff4f\uff52\uff4d"),
+    )
+
+    with _create_session() as session:
+        result = sync_markdown_document(session, markdown_file)
+
+        assert result.status == "error"
+        assert result.errors[0].code == "TAG_DUPLICATE_NORMALIZED_NAME"
+        assert result.errors[0].field == "tags"
+        assert session.scalars(select(KnowledgeDocument)).all() == []
+        assert session.scalars(select(KnowledgeTag)).all() == []
+        assert session.scalars(select(KnowledgeCategory)).all() == []
 
 
 def test_sync_markdown_document_creates_and_reuses_category_tree() -> None:

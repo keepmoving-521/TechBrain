@@ -35,9 +35,7 @@ schema_version: 1
 id: tag-model-document
 title: 标签模型文档
 category: backend/python
-tags:
-  - ORM
-  - 性能优化
+tags: []
 created_at: 2026-06-29T10:00:00+08:00
 updated_at: 2026-06-29T10:00:00+08:00
 ---
@@ -104,7 +102,7 @@ def test_document_can_link_multiple_structured_tags() -> None:
         )
 
         assert document is not None
-        assert document.tags == ["ORM", "性能优化"]
+        assert document.tags == []
         assert [tag.normalized_name for tag in document.tag_nodes] == ["orm", "性能优化"]
         assert association_count == 2
         assert orm.documents == [document]

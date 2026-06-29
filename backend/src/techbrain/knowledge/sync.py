@@ -15,6 +15,12 @@ from techbrain.knowledge.parser import (
     parse_markdown_file,
 )
 from techbrain.knowledge.scanner import MarkdownFile
+from techbrain.knowledge.tag_sync import (
+    PreparedTag,
+    TagSyncError,
+    prepare_document_tags,
+    sync_document_tags,
+)
 from techbrain.models import DocumentSyncStatus, KnowledgeCategory, KnowledgeDocument
 
 
@@ -56,6 +62,9 @@ def sync_new_markdown_document(
         )
 
     parsed_document = parse_result.document
+    prepared_tags = _prepare_tags(parsed_document)
+    if isinstance(prepared_tags, MarkdownParseIssue):
+        return NewDocumentSyncResult(status="error", document=None, errors=(prepared_tags,))
     existing = _find_document_by_id(session, parsed_document) or _find_document_by_path(
         session,
         parsed_document,
@@ -73,6 +82,8 @@ def sync_new_markdown_document(
         scanned_at=now,
     )
     session.add(document)
+    session.flush()
+    sync_document_tags(session, document, prepared_tags)
     session.flush()
 
     return NewDocumentSyncResult(status="created", document=document)
@@ -95,6 +106,9 @@ def sync_markdown_document(
         )
 
     parsed_document = parse_result.document
+    prepared_tags = _prepare_tags(parsed_document)
+    if isinstance(prepared_tags, MarkdownParseIssue):
+        return NewDocumentSyncResult(status="error", document=None, errors=(prepared_tags,))
     existing = _find_document_by_id(session, parsed_document)
     now = scanned_at or datetime.now(UTC)
 
@@ -123,6 +137,8 @@ def sync_markdown_document(
         )
         session.add(document)
         session.flush()
+        sync_document_tags(session, document, prepared_tags)
+        session.flush()
         return NewDocumentSyncResult(status="created", document=document)
 
     values = _document_values(parsed_document)
@@ -149,6 +165,8 @@ def sync_markdown_document(
             errors=(category_result,),
         )
 
+    tags_changed = sync_document_tags(session, existing, prepared_tags)
+
     if existing.is_deleted:
         _apply_document_values(existing, values)
         existing.category_node = category_result
@@ -161,7 +179,11 @@ def sync_markdown_document(
         session.flush()
         return NewDocumentSyncResult(status="restored", document=existing)
 
-    if _document_hashes_unchanged(existing, values) and existing.category_id == category_result.id:
+    if (
+        _document_hashes_unchanged(existing, values)
+        and existing.category_id == category_result.id
+        and not tags_changed
+    ):
         return NewDocumentSyncResult(status="unchanged", document=existing)
 
     _apply_document_values(existing, values)
@@ -266,6 +288,20 @@ def _resolve_category(
             "CATEGORY_INVALID_PATH",
             str(exc),
             field="category",
+        )
+
+
+def _prepare_tags(
+    parsed_document: ParsedMarkdownDocument,
+) -> tuple[PreparedTag, ...] | MarkdownParseIssue:
+    try:
+        return prepare_document_tags(parsed_document.front_matter.tags)
+    except TagSyncError as exc:
+        return _sync_error(
+            parsed_document,
+            exc.code,
+            str(exc),
+            field="tags",
         )
 
 

@@ -13,7 +13,7 @@
 - 标签名称规范化和数据库唯一约束。
 - 标签与文档的 ORM 双向关系。
 
-Markdown Front Matter 的 `tags` 和 `knowledge_documents.tags` JSON 镜像暂时保留。TB-V10-021 将负责根据 Markdown 自动创建标签并同步结构化关联。
+Markdown Front Matter 的 `tags` 和 `knowledge_documents.tags` JSON 镜像继续保留。TB-V10-021 已实现根据 Markdown 自动创建标签并同步结构化关联。
 
 ## 2. 标签表
 
@@ -105,7 +105,7 @@ KnowledgeDocument.tag_nodes -> list[KnowledgeTag]
 KnowledgeTag.documents -> list[KnowledgeDocument]
 ```
 
-`KnowledgeDocument.tags` 仍是 Markdown Front Matter 标签字符串数组镜像；`tag_nodes` 是结构化标签关系。两者在 TB-V10-021 同步后应保持一致。
+`KnowledgeDocument.tags` 是 Markdown Front Matter 标签字符串数组镜像；`tag_nodes` 是结构化标签关系。TB-V10-021 的文档同步流程负责保持两者一致。
 
 ## 7. 索引与约束
 
@@ -131,7 +131,7 @@ cd backend
 python -m techbrain.db.migrate upgrade
 ```
 
-迁移只创建标签和关联表，不回填现有 `knowledge_documents.tags` JSON。这样可以保持本需求边界清晰，并由 TB-V10-021 使用统一同步规则完成首次结构化关联。
+迁移只创建标签和关联表，不直接回填现有 `knowledge_documents.tags` JSON。升级后执行一次全量知识同步，即可由 TB-V10-021 的统一规则完成首次结构化关联。
 
 ## 9. 验收结论
 
