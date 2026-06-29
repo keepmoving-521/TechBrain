@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from techbrain.core.config import Environment, Settings
 from techbrain.db.base import Base
 from techbrain.knowledge.scanner import MarkdownFile
 from techbrain.knowledge.sync import sync_markdown_document
@@ -184,3 +185,186 @@ def test_tag_queries_return_404_and_validate_sort(app) -> None:
     assert documents.status_code == 404
     assert invalid_sort.status_code == 422
     assert invalid_sort.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_create_rename_and_delete_unused_tag(app) -> None:
+    Base.metadata.create_all(app.state.database.engine)
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        created = client.post("/api/v1/tags", json={"name": "  Cache  "})
+        tag_id = created.json()["id"]
+        renamed = client.patch(f"/api/v1/tags/{tag_id}", json={"name": "Caching"})
+        deleted = client.delete(f"/api/v1/tags/{tag_id}")
+        detail = client.get(f"/api/v1/tags/{tag_id}")
+
+    assert created.status_code == 201
+    assert created.json()["name"] == "Cache"
+    assert created.json()["normalized_name"] == "cache"
+    assert created.json()["usage_count"] == 0
+    assert renamed.status_code == 200
+    assert renamed.json()["id"] == tag_id
+    assert renamed.json()["normalized_name"] == "caching"
+    assert deleted.status_code == 204
+    assert detail.status_code == 404
+
+
+def test_create_and_rename_tag_reject_normalized_name_conflicts(app) -> None:
+    Base.metadata.create_all(app.state.database.engine)
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        orm = client.post("/api/v1/tags", json={"name": "ORM"})
+        duplicate = client.post(
+            "/api/v1/tags",
+            json={"name": "\uff4f\uff52\uff4d"},
+        )
+        database = client.post("/api/v1/tags", json={"name": "database"})
+        rename_conflict = client.patch(
+            f"/api/v1/tags/{orm.json()['id']}",
+            json={"name": "DATABASE"},
+        )
+
+    assert orm.status_code == 201
+    assert database.status_code == 201
+    assert duplicate.status_code == 409
+    assert duplicate.json()["error"]["message"] == "标签规范化名称已存在: orm"
+    assert rename_conflict.status_code == 409
+    assert rename_conflict.json()["error"]["message"] == "标签规范化名称已存在: database"
+
+
+def test_rename_used_tag_rewrites_all_markdown_and_preserves_identity(app) -> None:
+    root = Path(".pytest_tmp") / "tag_management_rename"
+    app.state.settings = Settings(
+        environment=Environment.TEST,
+        database_url="sqlite+pysqlite:///:memory:",
+        knowledge_root=root.resolve(),
+    )
+    Base.metadata.create_all(app.state.database.engine)
+    first_file = _write_markdown(
+        root,
+        "rename-first.md",
+        "rename-first",
+        tags=("ORM", "performance"),
+        updated_at="2026-06-29T10:00:00+08:00",
+    )
+    second_file = _write_markdown(
+        root,
+        "rename-second.md",
+        "rename-second",
+        tags=("orm",),
+        updated_at="2026-06-29T11:00:00+08:00",
+    )
+    with app.state.database.session_factory() as session:
+        first = sync_markdown_document(session, first_file)
+        sync_markdown_document(session, second_file)
+        session.commit()
+        assert first.document is not None
+        tag_id = next(tag.id for tag in first.document.tag_nodes if tag.normalized_name == "orm")
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.patch(
+            f"/api/v1/tags/{tag_id}",
+            json={"name": "object-relational-mapping"},
+        )
+        with app.state.database.session_factory() as session:
+            tag = session.get(KnowledgeTag, tag_id)
+            documents = session.execute(
+                select(KnowledgeTag.id, KnowledgeTag.normalized_name).where(
+                    KnowledgeTag.id == tag_id
+                )
+            ).one()
+            document_tags = session.scalars(
+                select(KnowledgeTag.normalized_name)
+                .join(KnowledgeTag.documents)
+                .where(KnowledgeTag.id == tag_id)
+            ).all()
+
+    assert response.status_code == 200
+    assert response.json()["id"] == tag_id
+    assert response.json()["normalized_name"] == "object-relational-mapping"
+    assert response.json()["usage_count"] == 2
+    assert tag is not None
+    assert documents == (tag_id, "object-relational-mapping")
+    assert document_tags == ["object-relational-mapping", "object-relational-mapping"]
+    assert '  - "object-relational-mapping"\n' in first_file.path.read_text(encoding="utf-8")
+    assert '  - "object-relational-mapping"\n' in second_file.path.read_text(encoding="utf-8")
+    assert "updated_at: 2026-06-29T10:00:00+08:00" not in first_file.path.read_text(
+        encoding="utf-8"
+    )
+
+
+def test_delete_used_tag_is_rejected(app) -> None:
+    ids = _seed_tags(app)
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.delete(f"/api/v1/tags/{ids['orm']}")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["message"] == "标签正在被文档使用, 无法直接删除"
+
+
+def test_rename_tag_rejects_external_markdown_modification(app) -> None:
+    root = Path(".pytest_tmp") / "tag_management_conflict"
+    app.state.settings = Settings(
+        environment=Environment.TEST,
+        database_url="sqlite+pysqlite:///:memory:",
+        knowledge_root=root.resolve(),
+    )
+    Base.metadata.create_all(app.state.database.engine)
+    markdown_file = _write_markdown(
+        root,
+        "external.md",
+        "tag-external-change",
+        tags=("orm",),
+        updated_at="2026-06-29T10:00:00+08:00",
+    )
+    with app.state.database.session_factory() as session:
+        synced = sync_markdown_document(session, markdown_file)
+        session.commit()
+        assert synced.document is not None
+        tag_id = synced.document.tag_nodes[0].id
+
+    external_content = markdown_file.path.read_text(encoding="utf-8").replace(
+        "# tag-external-change",
+        "# externally changed",
+    )
+    markdown_file.path.write_text(external_content, encoding="utf-8")
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.patch(f"/api/v1/tags/{tag_id}", json={"name": "database-orm"})
+        with app.state.database.session_factory() as session:
+            tag = session.get(KnowledgeTag, tag_id)
+            assert tag is not None
+            normalized_name = tag.normalized_name
+
+    assert response.status_code == 409
+    assert "已被外部修改" in response.json()["error"]["message"]
+    assert normalized_name == "orm"
+    assert "# externally changed" in markdown_file.path.read_text(encoding="utf-8")
+    assert "  - orm\n" in markdown_file.path.read_text(encoding="utf-8")
+
+
+def test_tag_management_returns_not_found_and_validation_errors(app) -> None:
+    Base.metadata.create_all(app.state.database.engine)
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        missing_rename = client.patch("/api/v1/tags/9999", json={"name": "missing"})
+        missing_delete = client.delete("/api/v1/tags/9999")
+        invalid_name = client.post("/api/v1/tags", json={"name": "line\nbreak"})
+
+    assert missing_rename.status_code == 404
+    assert missing_delete.status_code == 404
+    assert invalid_name.status_code == 400
+    assert invalid_name.json()["error"]["message"] == "标签名称不能包含控制字符"
+
+
+def test_tag_management_rejects_write_while_sync_lock_is_held(app) -> None:
+    Base.metadata.create_all(app.state.database.engine)
+    app.state.knowledge_sync_lock.acquire()
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.post("/api/v1/tags", json={"name": "blocked"})
+    finally:
+        app.state.knowledge_sync_lock.release()
+
+    assert response.status_code == 409
+    assert "正在执行" in response.json()["error"]["message"]

@@ -60,3 +60,15 @@ class TagDocumentListResponse(BaseModel):
 
     items: list[TagDocumentResponse] = Field(default_factory=list)
     pagination: PaginationResponse
+
+
+class TagCreateRequest(BaseModel):
+    """Create an unused active tag."""
+
+    name: str = Field(min_length=1, max_length=80)
+
+
+class TagUpdateRequest(BaseModel):
+    """Rename one tag."""
+
+    name: str = Field(min_length=1, max_length=80)
