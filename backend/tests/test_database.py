@@ -70,16 +70,25 @@ def test_empty_database_can_be_initialized_with_alembic(monkeypatch) -> None:
                 "select name from pragma_table_info('knowledge_documents') "
                 "where name = 'category_id'"
             ).fetchone()
+            tag_table = connection.execute(
+                "select name from sqlite_master where type = 'table' and name = 'knowledge_tags'"
+            ).fetchone()
+            document_tag_table = connection.execute(
+                "select name from sqlite_master "
+                "where type = 'table' and name = 'knowledge_document_tags'"
+            ).fetchone()
     finally:
         get_settings.cache_clear()
 
-    assert version == ("0006",)
+    assert version == ("0007",)
     assert table == ("knowledge_documents",)
     assert body_column == ("body",)
     assert task_table == ("knowledge_sync_tasks",)
     assert failure_table == ("knowledge_sync_failures",)
     assert category_table == ("knowledge_categories",)
     assert category_id_column == ("category_id",)
+    assert tag_table == ("knowledge_tags",)
+    assert document_tag_table == ("knowledge_document_tags",)
 
 
 def test_category_link_migration_backfills_existing_documents(monkeypatch) -> None:

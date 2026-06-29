@@ -24,6 +24,7 @@ from techbrain.db.base import Base
 
 if TYPE_CHECKING:
     from techbrain.models.knowledge_category import KnowledgeCategory
+    from techbrain.models.knowledge_tag import KnowledgeTag
 
 
 class KnowledgeDocumentStatus(StrEnum):
@@ -92,6 +93,10 @@ class KnowledgeDocument(Base):
         nullable=False,
     )
     category_node: Mapped[KnowledgeCategory] = relationship(back_populates="documents")
+    tag_nodes: Mapped[list[KnowledgeTag]] = relationship(
+        secondary="knowledge_document_tags",
+        back_populates="documents",
+    )
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     body: Mapped[str] = mapped_column(Text, nullable=False)
 

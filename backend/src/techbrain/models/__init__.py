@@ -19,6 +19,13 @@ from techbrain.models.knowledge_sync_task import (
     KnowledgeSyncTask,
     KnowledgeSyncTaskStatus,
 )
+from techbrain.models.knowledge_tag import (
+    KnowledgeTag,
+    KnowledgeTagStatus,
+    knowledge_document_tags,
+    normalize_tag_name,
+    validate_tag_name,
+)
 
 __all__ = [
     "DocumentSyncStatus",
@@ -30,8 +37,13 @@ __all__ = [
     "KnowledgeSyncFailureRecord",
     "KnowledgeSyncTask",
     "KnowledgeSyncTaskStatus",
+    "KnowledgeTag",
+    "KnowledgeTagStatus",
     "build_category_path",
+    "knowledge_document_tags",
+    "normalize_tag_name",
     "validate_category_name",
     "validate_category_slug",
+    "validate_tag_name",
     "would_create_category_cycle",
 ]
