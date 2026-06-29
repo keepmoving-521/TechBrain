@@ -11,8 +11,8 @@ from techbrain.core.config import Environment, Settings
 from techbrain.db.base import Base
 from techbrain.knowledge.scanner import MarkdownFile
 from techbrain.knowledge.sync import sync_markdown_document
-from techbrain.knowledge.tag_management import TagConflictError, rename_tag
-from techbrain.models import KnowledgeDocument, KnowledgeTag
+from techbrain.knowledge.tag_management import TagConflictError, merge_tags, rename_tag
+from techbrain.models import KnowledgeDocument, KnowledgeTag, KnowledgeTagStatus
 
 
 def _create_session() -> Session:
@@ -91,6 +91,60 @@ def test_tag_rename_batch_failure_restores_markdown_and_database(monkeypatch) ->
         assert tag is not None
         assert tag.name == "orm"
         assert tag.normalized_name == "orm"
+        assert document_tags == [["orm"], ["orm"]]
+        assert "  - orm\n" in first_file.path.read_text(encoding="utf-8")
+        assert "  - orm\n" in second_file.path.read_text(encoding="utf-8")
+
+
+def test_tag_merge_batch_failure_restores_relations_status_and_markdown(monkeypatch) -> None:
+    root = Path(".pytest_tmp") / "tag_merge_rollback"
+    first_file = _write_markdown(root, "first.md", "merge-rollback-first")
+    second_file = _write_markdown(root, "second.md", "merge-rollback-second")
+    settings = Settings(
+        environment=Environment.TEST,
+        database_url="sqlite+pysqlite:///:memory:",
+        knowledge_root=root.resolve(),
+    )
+
+    with _create_session() as session:
+        first = sync_markdown_document(session, first_file)
+        sync_markdown_document(session, second_file)
+        target = KnowledgeTag(name="database", status=KnowledgeTagStatus.ARCHIVED.value)
+        session.add(target)
+        session.commit()
+        assert first.document is not None
+        source_id = first.document.tag_nodes[0].id
+        target_id = target.id
+
+        original_replace = tag_management._atomic_replace_if_unchanged
+        calls = 0
+
+        def fail_on_second_write(rewrite, encoding: str) -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise TagConflictError("模拟标签合并中途失败")
+            original_replace(rewrite, encoding)
+
+        monkeypatch.setattr(
+            tag_management,
+            "_atomic_replace_if_unchanged",
+            fail_on_second_write,
+        )
+
+        with pytest.raises(TagConflictError, match="模拟标签合并中途失败"):
+            merge_tags(session, settings, source_id, target_id)
+
+        source = session.get(KnowledgeTag, source_id)
+        restored_target = session.get(KnowledgeTag, target_id)
+        document_tags = session.scalars(
+            select(KnowledgeDocument.tags).order_by(KnowledgeDocument.document_id)
+        ).all()
+
+        assert source is not None
+        assert restored_target is not None
+        assert source.status == KnowledgeTagStatus.ACTIVE.value
+        assert restored_target.status == KnowledgeTagStatus.ARCHIVED.value
         assert document_tags == [["orm"], ["orm"]]
         assert "  - orm\n" in first_file.path.read_text(encoding="utf-8")
         assert "  - orm\n" in second_file.path.read_text(encoding="utf-8")

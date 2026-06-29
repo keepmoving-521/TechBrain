@@ -61,6 +61,16 @@ class _TagMarkdownRewrite:
     updated_content: str
 
 
+@dataclass(frozen=True)
+class TagMergeResult:
+    """Result of merging one source tag into a target tag."""
+
+    source_tag_id: int
+    target_tag_id: int
+    migrated_document_count: int
+    source_status: str
+
+
 def create_tag(session: Session, name: str) -> KnowledgeTag:
     """Create one unused active tag with normalized-name conflict detection."""
     display_name = _validated_name(name)
@@ -169,6 +179,99 @@ def delete_tag(session: Session, tag_id: int) -> None:
         raise TagConflictError("标签已被其他数据引用, 无法删除") from exc
 
 
+def merge_tags(
+    session: Session,
+    settings: Settings,
+    source_tag_id: int,
+    target_tag_id: int,
+    *,
+    changed_at: datetime | None = None,
+) -> TagMergeResult:
+    """Merge all source-tag documents into the target and archive the source."""
+    source = session.get(KnowledgeTag, source_tag_id)
+    if source is None:
+        raise TagNotFoundError("源标签不存在")
+    target = session.get(KnowledgeTag, target_tag_id)
+    if target is None:
+        raise TagNotFoundError("目标标签不存在")
+    if source.id == target.id:
+        raise TagConflictError("源标签和目标标签不能相同")
+
+    documents = list(
+        session.scalars(
+            select(KnowledgeDocument)
+            .join(
+                knowledge_document_tags,
+                knowledge_document_tags.c.document_id == KnowledgeDocument.id,
+            )
+            .where(knowledge_document_tags.c.tag_id == source.id)
+            .order_by(KnowledgeDocument.id)
+        ).all()
+    )
+    if any(document.is_deleted for document in documents):
+        raise TagConflictError("源标签关联了源文件已删除的文档, 无法安全合并")
+    if not documents:
+        source.status = KnowledgeTagStatus.ARCHIVED.value
+        target.status = KnowledgeTagStatus.ACTIVE.value
+        session.commit()
+        return TagMergeResult(
+            source_tag_id=source.id,
+            target_tag_id=target.id,
+            migrated_document_count=0,
+            source_status=source.status,
+        )
+
+    operation_time = changed_at or datetime.now(UTC)
+    rewrites = _prepare_merge_rewrites(
+        documents,
+        settings,
+        source=source,
+        target=target,
+        changed_at=operation_time,
+    )
+    written: list[_TagMarkdownRewrite] = []
+    try:
+        source.status = KnowledgeTagStatus.ARCHIVED.value
+        target.status = KnowledgeTagStatus.ACTIVE.value
+        session.flush()
+        for rewrite in rewrites:
+            _atomic_replace_if_unchanged(rewrite, settings.knowledge_file_encoding)
+            written.append(rewrite)
+        for rewrite in rewrites:
+            result = sync_markdown_document(
+                session,
+                _markdown_file(rewrite.path, rewrite.document.relative_path),
+                encoding=settings.knowledge_file_encoding,
+                scanned_at=operation_time,
+            )
+            if result.status == "error":
+                message = result.errors[0].message if result.errors else "文档重新同步失败"
+                raise TagConflictError(message)
+        remaining_source_link = session.scalar(
+            select(knowledge_document_tags.c.document_id)
+            .where(knowledge_document_tags.c.tag_id == source.id)
+            .limit(1)
+        )
+        if remaining_source_link is not None:
+            raise TagConflictError("源标签仍存在文档关联, 合并未完成")
+        session.commit()
+    except TagManagementError:
+        session.rollback()
+        _restore_written_files(written, settings.knowledge_file_encoding)
+        raise
+    except (OSError, UnicodeError, SQLAlchemyError, ValueError) as exc:
+        session.rollback()
+        _restore_written_files(written, settings.knowledge_file_encoding)
+        raise TagConflictError(f"标签合并未完成: {exc}") from exc
+
+    return TagMergeResult(
+        source_tag_id=source.id,
+        target_tag_id=target.id,
+        migrated_document_count=len(documents),
+        source_status=source.status,
+    )
+
+
 def _validated_name(name: str) -> str:
     try:
         return validate_tag_name(name)
@@ -250,6 +353,68 @@ def _prepare_rewrites(
     return tuple(rewrites)
 
 
+def _prepare_merge_rewrites(
+    documents: list[KnowledgeDocument],
+    settings: Settings,
+    *,
+    source: KnowledgeTag,
+    target: KnowledgeTag,
+    changed_at: datetime,
+) -> tuple[_TagMarkdownRewrite, ...]:
+    try:
+        config = build_knowledge_repository_config(settings)
+    except KnowledgeConfigurationError as exc:
+        raise TagValidationError(str(exc)) from exc
+
+    rewrites: list[_TagMarkdownRewrite] = []
+    for document in documents:
+        path = Path(document.absolute_path).resolve()
+        expected_path = (config.root / Path(document.relative_path)).resolve()
+        if path != expected_path or not path.is_relative_to(config.root):
+            raise TagConflictError(f"文档路径超出知识库或已变化: {document.relative_path}")
+        try:
+            original_content = path.read_text(encoding=config.file_encoding)
+        except (OSError, UnicodeError) as exc:
+            raise TagConflictError(f"无法读取文档: {document.relative_path}: {exc}") from exc
+
+        parsed = _parse_for_write(document, path, original_content)
+        updated_tags = _merged_tags(
+            parsed.front_matter.tags,
+            source.normalized_name,
+            target.name,
+            target.normalized_name,
+            document.relative_path,
+        )
+        try:
+            prepare_document_tags(updated_tags)
+        except TagSyncError as exc:
+            raise TagConflictError(
+                f"标签合并会使文档标签冲突: {document.relative_path}: {exc}"
+            ) from exc
+        effective_time = max(changed_at, parsed.front_matter.updated_at)
+        updated_content = _rewrite_front_matter_tags(
+            original_content,
+            tags=updated_tags,
+            updated_at=effective_time,
+        )
+        result = parse_markdown_content(
+            _markdown_file(path, document.relative_path),
+            updated_content,
+        )
+        if result.status == "error" or result.document is None:
+            message = result.errors[0].message if result.errors else "回写内容不合法"
+            raise TagConflictError(f"文档回写校验失败: {document.relative_path}: {message}")
+        rewrites.append(
+            _TagMarkdownRewrite(
+                document=document,
+                path=path,
+                original_content=original_content,
+                updated_content=updated_content,
+            )
+        )
+    return tuple(rewrites)
+
+
 def _parse_for_write(
     document: KnowledgeDocument,
     path: Path,
@@ -283,6 +448,37 @@ def _renamed_tags(
         raise TagConflictError(f"文档标签关联不一致: {relative_path}")
     updated = list(tags)
     updated[matches[0]] = new_display_name
+    return tuple(updated)
+
+
+def _merged_tags(
+    tags: tuple[str, ...],
+    source_normalized_name: str,
+    target_display_name: str,
+    target_normalized_name: str,
+    relative_path: str,
+) -> tuple[str, ...]:
+    source_matches = [
+        index
+        for index, name in enumerate(tags)
+        if normalize_tag_name(name) == source_normalized_name
+    ]
+    if len(source_matches) != 1:
+        raise TagConflictError(f"文档源标签关联不一致: {relative_path}")
+    target_matches = [
+        index
+        for index, name in enumerate(tags)
+        if normalize_tag_name(name) == target_normalized_name
+    ]
+    if len(target_matches) > 1:
+        raise TagConflictError(f"文档目标标签重复: {relative_path}")
+
+    source_index = source_matches[0]
+    updated = list(tags)
+    if target_matches:
+        del updated[source_index]
+    else:
+        updated[source_index] = target_display_name
     return tuple(updated)
 
 

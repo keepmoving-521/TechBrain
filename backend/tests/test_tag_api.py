@@ -9,7 +9,12 @@ from techbrain.core.config import Environment, Settings
 from techbrain.db.base import Base
 from techbrain.knowledge.scanner import MarkdownFile
 from techbrain.knowledge.sync import sync_markdown_document
-from techbrain.models import KnowledgeTag, KnowledgeTagStatus
+from techbrain.models import (
+    KnowledgeDocument,
+    KnowledgeTag,
+    KnowledgeTagStatus,
+    knowledge_document_tags,
+)
 
 
 def _write_markdown(
@@ -194,6 +199,7 @@ def test_create_rename_and_delete_unused_tag(app) -> None:
         created = client.post("/api/v1/tags", json={"name": "  Cache  "})
         tag_id = created.json()["id"]
         renamed = client.patch(f"/api/v1/tags/{tag_id}", json={"name": "Caching"})
+        unchanged = client.patch(f"/api/v1/tags/{tag_id}", json={"name": "Caching"})
         deleted = client.delete(f"/api/v1/tags/{tag_id}")
         detail = client.get(f"/api/v1/tags/{tag_id}")
 
@@ -204,6 +210,8 @@ def test_create_rename_and_delete_unused_tag(app) -> None:
     assert renamed.status_code == 200
     assert renamed.json()["id"] == tag_id
     assert renamed.json()["normalized_name"] == "caching"
+    assert unchanged.status_code == 200
+    assert unchanged.json()["id"] == tag_id
     assert deleted.status_code == 204
     assert detail.status_code == 404
 
@@ -368,3 +376,178 @@ def test_tag_management_rejects_write_while_sync_lock_is_held(app) -> None:
 
     assert response.status_code == 409
     assert "正在执行" in response.json()["error"]["message"]
+
+
+def test_merge_tags_migrates_all_documents_without_duplicate_relations(app) -> None:
+    root = Path(".pytest_tmp") / "tag_merge_success"
+    app.state.settings = Settings(
+        environment=Environment.TEST,
+        database_url="sqlite+pysqlite:///:memory:",
+        knowledge_root=root.resolve(),
+    )
+    Base.metadata.create_all(app.state.database.engine)
+    source_file = _write_markdown(
+        root,
+        "merge-source.md",
+        "merge-source",
+        tags=("orm",),
+        updated_at="2026-06-29T10:00:00+08:00",
+    )
+    both_file = _write_markdown(
+        root,
+        "merge-both.md",
+        "merge-both",
+        tags=("orm", "database"),
+        updated_at="2026-06-29T11:00:00+08:00",
+    )
+    target_file = _write_markdown(
+        root,
+        "merge-target.md",
+        "merge-target",
+        tags=("database",),
+        updated_at="2026-06-29T12:00:00+08:00",
+    )
+    with app.state.database.session_factory() as session:
+        source_result = sync_markdown_document(session, source_file)
+        both_result = sync_markdown_document(session, both_file)
+        sync_markdown_document(session, target_file)
+        session.commit()
+        assert source_result.document is not None
+        assert both_result.document is not None
+        source_id = next(
+            tag.id for tag in source_result.document.tag_nodes if tag.normalized_name == "orm"
+        )
+        target_id = next(
+            tag.id for tag in both_result.document.tag_nodes if tag.normalized_name == "database"
+        )
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.post(
+            f"/api/v1/tags/{source_id}/merge",
+            json={"target_tag_id": target_id},
+        )
+        source_detail = client.get(f"/api/v1/tags/{source_id}")
+        target_detail = client.get(f"/api/v1/tags/{target_id}")
+        with app.state.database.session_factory() as session:
+            source = session.get(KnowledgeTag, source_id)
+            document_tags = session.scalars(
+                select(KnowledgeDocument.tags).order_by(KnowledgeDocument.document_id)
+            ).all()
+            source_link_count = len(
+                session.execute(
+                    select(knowledge_document_tags).where(
+                        knowledge_document_tags.c.tag_id == source_id
+                    )
+                ).all()
+            )
+            target_link_count = len(
+                session.execute(
+                    select(knowledge_document_tags).where(
+                        knowledge_document_tags.c.tag_id == target_id
+                    )
+                ).all()
+            )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "source_tag_id": source_id,
+        "target_tag_id": target_id,
+        "migrated_document_count": 2,
+        "source_status": "archived",
+    }
+    assert source is not None
+    assert source.status == KnowledgeTagStatus.ARCHIVED.value
+    assert source_detail.json()["usage_count"] == 0
+    assert target_detail.json()["usage_count"] == 3
+    assert document_tags == [["database"], ["database"], ["database"]]
+    assert source_link_count == 0
+    assert target_link_count == 3
+    assert source_file.path.read_text(encoding="utf-8").count('  - "database"') == 1
+    assert both_file.path.read_text(encoding="utf-8").count('  - "database"') == 1
+    assert "orm" not in source_file.path.read_text(encoding="utf-8")
+    assert "orm" not in both_file.path.read_text(encoding="utf-8")
+
+
+def test_merge_tags_rejects_same_or_missing_target(app) -> None:
+    Base.metadata.create_all(app.state.database.engine)
+    with app.state.database.session_factory() as session:
+        source = KnowledgeTag(name="source", status=KnowledgeTagStatus.ACTIVE.value)
+        session.add(source)
+        session.commit()
+        source_id = source.id
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        same = client.post(
+            f"/api/v1/tags/{source_id}/merge",
+            json={"target_tag_id": source_id},
+        )
+        missing = client.post(
+            f"/api/v1/tags/{source_id}/merge",
+            json={"target_tag_id": 9999},
+        )
+        missing_source = client.post(
+            "/api/v1/tags/9998/merge",
+            json={"target_tag_id": source_id},
+        )
+
+    assert same.status_code == 409
+    assert same.json()["error"]["message"] == "源标签和目标标签不能相同"
+    assert missing.status_code == 404
+    assert missing.json()["error"]["message"] == "目标标签不存在"
+    assert missing_source.status_code == 404
+    assert missing_source.json()["error"]["message"] == "源标签不存在"
+
+
+def test_merge_unused_tag_archives_source_and_activates_target(app) -> None:
+    Base.metadata.create_all(app.state.database.engine)
+    with app.state.database.session_factory() as session:
+        source = KnowledgeTag(name="unused-source", status=KnowledgeTagStatus.ACTIVE.value)
+        target = KnowledgeTag(name="unused-target", status=KnowledgeTagStatus.ARCHIVED.value)
+        session.add_all((source, target))
+        session.commit()
+        source_id = source.id
+        target_id = target.id
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.post(
+            f"/api/v1/tags/{source_id}/merge",
+            json={"target_tag_id": target_id},
+        )
+        source_detail = client.get(f"/api/v1/tags/{source_id}")
+        target_detail = client.get(f"/api/v1/tags/{target_id}")
+
+    assert response.status_code == 200
+    assert response.json()["migrated_document_count"] == 0
+    assert response.json()["source_status"] == "archived"
+    assert source_detail.json()["status"] == "archived"
+    assert target_detail.json()["status"] == "active"
+
+
+def test_merge_tag_rejects_soft_deleted_source_document(app) -> None:
+    root = Path(".pytest_tmp") / "tag_merge_deleted_document"
+    Base.metadata.create_all(app.state.database.engine)
+    markdown_file = _write_markdown(
+        root,
+        "deleted-source.md",
+        "merge-deleted-source",
+        tags=("source-tag",),
+        updated_at="2026-06-29T10:00:00+08:00",
+    )
+    with app.state.database.session_factory() as session:
+        synced = sync_markdown_document(session, markdown_file)
+        target = KnowledgeTag(name="target-tag", status=KnowledgeTagStatus.ACTIVE.value)
+        session.add(target)
+        assert synced.document is not None
+        synced.document.is_deleted = True
+        session.commit()
+        source_id = synced.document.tag_nodes[0].id
+        target_id = target.id
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.post(
+            f"/api/v1/tags/{source_id}/merge",
+            json={"target_tag_id": target_id},
+        )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["message"] == "源标签关联了源文件已删除的文档, 无法安全合并"

@@ -17,6 +17,7 @@ from techbrain.knowledge.tag_management import (
     TagValidationError,
     create_tag,
     delete_tag,
+    merge_tags,
     rename_tag,
 )
 from techbrain.knowledge.tag_query import get_tag_detail, list_tag_documents, list_tags
@@ -24,6 +25,8 @@ from techbrain.schemas.tag import (
     TagCreateRequest,
     TagDocumentListResponse,
     TagListResponse,
+    TagMergeRequest,
+    TagMergeResponse,
     TagSummaryResponse,
     TagUpdateRequest,
 )
@@ -64,6 +67,32 @@ def rename_knowledge_tag(
         except TagConflictError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         return _tag_response(session, tag.id)
+
+
+@router.post("/{tag_id}/merge", response_model=TagMergeResponse)
+def merge_knowledge_tag(
+    request: Request,
+    tag_id: int,
+    payload: TagMergeRequest,
+) -> TagMergeResponse:
+    """Merge one source tag into an existing target tag."""
+    database: DatabaseManager = request.app.state.database
+    settings: Settings = request.app.state.settings
+    with _knowledge_write_lock(request), database.session_factory() as session:
+        try:
+            result = merge_tags(
+                session,
+                settings,
+                tag_id,
+                payload.target_tag_id,
+            )
+        except TagNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        except TagValidationError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        except TagConflictError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        return TagMergeResponse.model_validate(result)
 
 
 @router.delete("/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)

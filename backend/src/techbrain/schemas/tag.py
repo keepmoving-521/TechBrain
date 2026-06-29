@@ -72,3 +72,20 @@ class TagUpdateRequest(BaseModel):
     """Rename one tag."""
 
     name: str = Field(min_length=1, max_length=80)
+
+
+class TagMergeRequest(BaseModel):
+    """Merge a source tag into an existing target tag."""
+
+    target_tag_id: int = Field(ge=1)
+
+
+class TagMergeResponse(BaseModel):
+    """Tag merge result."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    source_tag_id: int
+    target_tag_id: int
+    migrated_document_count: int
+    source_status: str
