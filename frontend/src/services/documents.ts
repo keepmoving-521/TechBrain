@@ -36,6 +36,8 @@ export interface DocumentListParams {
   page: number;
   page_size: number;
   category_id?: number;
+  tag_id?: number;
+  status?: string;
   sort: DocumentSort;
 }
 

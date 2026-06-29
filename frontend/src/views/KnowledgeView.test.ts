@@ -7,6 +7,8 @@ import KnowledgeView from "@/views/KnowledgeView.vue";
 const mocks = vi.hoisted(() => ({
   getCategoryTree: vi.fn(),
   getDocuments: vi.fn(),
+  getTag: vi.fn(),
+  getTags: vi.fn(),
 }));
 
 vi.mock("@/services/categories", () => ({
@@ -15,6 +17,11 @@ vi.mock("@/services/categories", () => ({
 
 vi.mock("@/services/documents", () => ({
   getDocuments: mocks.getDocuments,
+}));
+
+vi.mock("@/services/tags", () => ({
+  getTag: mocks.getTag,
+  getTags: mocks.getTags,
 }));
 
 const elementStubs = {
@@ -78,6 +85,27 @@ const categoryTree = [
   },
 ];
 
+const tagItems = [
+  {
+    id: 9,
+    name: "ORM",
+    normalized_name: "orm",
+    status: "active",
+    usage_count: 2,
+    created_at: "2026-06-20T10:00:00+08:00",
+    updated_at: "2026-06-29T12:00:00+08:00",
+  },
+  {
+    id: 10,
+    name: "向量检索",
+    normalized_name: "向量检索",
+    status: "active",
+    usage_count: 0,
+    created_at: "2026-06-20T10:00:00+08:00",
+    updated_at: "2026-06-29T12:00:00+08:00",
+  },
+];
+
 function documentPage(categoryId?: number, page = 1) {
   const name = categoryId === 2 ? "MySQL 索引优化" : "SQLAlchemy 加载策略";
   return {
@@ -130,7 +158,23 @@ describe("KnowledgeView", () => {
   beforeEach(() => {
     mocks.getCategoryTree.mockReset();
     mocks.getDocuments.mockReset();
+    mocks.getTag.mockReset();
+    mocks.getTags.mockReset();
     mocks.getCategoryTree.mockResolvedValue(categoryTree);
+    mocks.getTag.mockImplementation((tagId: number) =>
+      Promise.resolve(tagItems.find((tag) => tag.id === tagId)),
+    );
+    mocks.getTags.mockResolvedValue({
+      items: tagItems,
+      pagination: {
+        page: 1,
+        page_size: 30,
+        total: 31,
+        total_pages: 2,
+        has_previous: false,
+        has_next: true,
+      },
+    });
     mocks.getDocuments.mockImplementation((params: { category_id?: number; page: number }) =>
       Promise.resolve(documentPage(params.category_id, params.page)),
     );
@@ -197,5 +241,77 @@ describe("KnowledgeView", () => {
 
     expect(wrapper.text()).toContain("知识库暂无可浏览文档");
     expect(wrapper.get('a[href="/system/sync"]')).toBeTruthy();
+  });
+
+  it("keeps tag statistics consistent with the associated document query", async () => {
+    mocks.getDocuments.mockResolvedValue({
+      items: documentPage().items,
+      pagination: {
+        page: 1,
+        page_size: 12,
+        total: 2,
+        total_pages: 1,
+        has_previous: false,
+        has_next: false,
+      },
+    });
+
+    const { router, wrapper } = await mountKnowledge("/knowledge?tag_id=9");
+
+    expect(mocks.getDocuments).toHaveBeenLastCalledWith({
+      page: 1,
+      page_size: 12,
+      category_id: undefined,
+      tag_id: 9,
+      status: "published,draft,archived,deprecated",
+      sort: "-updated_at",
+    });
+    expect(wrapper.text()).toContain("# ORM");
+    expect(wrapper.text()).toContain("2 篇关联文档");
+
+    await wrapper.findAll(".tag-browser-list button")[1].trigger("click");
+    await flushPromises();
+    expect(router.currentRoute.value.query.tag_id).toBe("10");
+    expect(mocks.getDocuments).toHaveBeenLastCalledWith(
+      expect.objectContaining({ tag_id: 10, page: 1 }),
+    );
+  });
+
+  it("supports tag pagination and associated document sorting", async () => {
+    const { router, wrapper } = await mountKnowledge("/knowledge?view=tags&tag_id=9");
+
+    await wrapper.get(".tag-pagination").trigger("click");
+    await flushPromises();
+    expect(router.currentRoute.value.query.tag_page).toBe("2");
+    expect(mocks.getTags).toHaveBeenLastCalledWith({
+      page: 2,
+      page_size: 30,
+      sort: "-usage_count",
+    });
+
+    await wrapper.get(".sort-ascending").trigger("click");
+    await flushPromises();
+    expect(router.currentRoute.value.query.sort).toBe("updated_at");
+    expect(mocks.getDocuments).toHaveBeenLastCalledWith(
+      expect.objectContaining({ tag_id: 9, sort: "updated_at" }),
+    );
+  });
+
+  it("shows an empty state for a tag without associated documents", async () => {
+    mocks.getDocuments.mockResolvedValue({
+      items: [],
+      pagination: {
+        page: 1,
+        page_size: 12,
+        total: 0,
+        total_pages: 0,
+        has_previous: false,
+        has_next: false,
+      },
+    });
+
+    const { wrapper } = await mountKnowledge("/knowledge?tag_id=10");
+
+    expect(wrapper.text()).toContain("该标签暂无关联文档");
   });
 });
