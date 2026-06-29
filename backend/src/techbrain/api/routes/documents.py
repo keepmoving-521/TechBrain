@@ -3,12 +3,18 @@
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Query, Request, status
+from fastapi import APIRouter, Path, Query, Request, status
 from starlette.exceptions import HTTPException
 
 from techbrain.db.session import DatabaseManager
-from techbrain.knowledge.document_query import list_documents, parse_status_filter
-from techbrain.schemas.document import DocumentListResponse
+from techbrain.knowledge.document_query import (
+    DocumentDeletedError,
+    DocumentNotFoundError,
+    get_document_detail,
+    list_documents,
+    parse_status_filter,
+)
+from techbrain.schemas.document import DocumentDetailResponse, DocumentListResponse
 
 router = APIRouter()
 
@@ -50,3 +56,20 @@ def get_documents(
             sort=sort,
         )
         return DocumentListResponse.model_validate(result, from_attributes=True)
+
+
+@router.get("/{document_id}", response_model=DocumentDetailResponse)
+def get_document(
+    request: Request,
+    document_id: int = Path(ge=1),
+) -> DocumentDetailResponse:
+    """Return complete content, metadata and sync information for one document."""
+    database: DatabaseManager = request.app.state.database
+    with database.session_factory() as session:
+        try:
+            detail = get_document_detail(session, document_id)
+        except DocumentNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        except DocumentDeletedError as exc:
+            raise HTTPException(status_code=status.HTTP_410_GONE, detail=str(exc)) from exc
+        return DocumentDetailResponse.model_validate(detail, from_attributes=True)

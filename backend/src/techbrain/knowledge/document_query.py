@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from math import ceil
-from typing import Literal
+from typing import Any, Literal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -52,6 +52,52 @@ class DocumentPage:
 
     items: tuple[DocumentListItem, ...]
     pagination: PaginationResult
+
+
+class DocumentNotFoundError(LookupError):
+    """Raised when a document primary key does not exist."""
+
+
+class DocumentDeletedError(LookupError):
+    """Raised when a document exists but has been soft deleted."""
+
+
+@dataclass(frozen=True)
+class DocumentSyncInfo:
+    """Latest synchronization state and integrity hashes."""
+
+    status: str
+    error: str | None
+    last_scanned_at: datetime | None
+    last_synced_at: datetime | None
+    path_hash: str
+    content_hash: str
+    front_matter_hash: str
+
+
+@dataclass(frozen=True)
+class DocumentDetail:
+    """Complete active document content, metadata and synchronization state."""
+
+    id: int
+    document_id: str
+    title: str
+    summary: str | None
+    body: str
+    category_id: int
+    category: str
+    tags: tuple[str, ...]
+    aliases: tuple[str, ...]
+    status: str
+    visibility: str
+    language: str
+    source: dict[str, Any]
+    relative_path: str
+    created_at: datetime
+    updated_at: datetime
+    sync: DocumentSyncInfo
+    record_created_at: datetime
+    record_updated_at: datetime
 
 
 def parse_status_filter(value: str | None) -> tuple[str, ...] | None:
@@ -115,6 +161,44 @@ def list_documents(
     return DocumentPage(
         items=tuple(_document_item(document) for document in documents),
         pagination=_pagination(page, page_size, total),
+    )
+
+
+def get_document_detail(session: Session, document_id: int) -> DocumentDetail:
+    """Return one active document or a distinct missing/deleted error."""
+    document = session.get(KnowledgeDocument, document_id)
+    if document is None:
+        raise DocumentNotFoundError("文档不存在")
+    if document.is_deleted:
+        raise DocumentDeletedError("文档已删除")
+    return DocumentDetail(
+        id=document.id,
+        document_id=document.document_id,
+        title=document.title,
+        summary=document.summary,
+        body=document.body,
+        category_id=document.category_id,
+        category=document.category,
+        tags=tuple(document.tags),
+        aliases=tuple(document.aliases),
+        status=document.status,
+        visibility=document.visibility,
+        language=document.language,
+        source=dict(document.source),
+        relative_path=document.relative_path,
+        created_at=document.source_created_at,
+        updated_at=document.source_updated_at,
+        sync=DocumentSyncInfo(
+            status=document.sync_status,
+            error=document.sync_error,
+            last_scanned_at=document.last_scanned_at,
+            last_synced_at=document.last_synced_at,
+            path_hash=document.path_hash,
+            content_hash=document.content_hash,
+            front_matter_hash=document.front_matter_hash,
+        ),
+        record_created_at=document.created_at,
+        record_updated_at=document.updated_at,
     )
 
 
