@@ -62,14 +62,19 @@ def test_empty_database_can_be_initialized_with_alembic(monkeypatch) -> None:
                 "select name from sqlite_master "
                 "where type = 'table' and name = 'knowledge_sync_failures'"
             ).fetchone()
+            category_table = connection.execute(
+                "select name from sqlite_master "
+                "where type = 'table' and name = 'knowledge_categories'"
+            ).fetchone()
     finally:
         get_settings.cache_clear()
 
-    assert version == ("0004",)
+    assert version == ("0005",)
     assert table == ("knowledge_documents",)
     assert body_column == ("body",)
     assert task_table == ("knowledge_sync_tasks",)
     assert failure_table == ("knowledge_sync_failures",)
+    assert category_table == ("knowledge_categories",)
 
 
 def test_migration_cli_dispatches_commands(monkeypatch) -> None:
